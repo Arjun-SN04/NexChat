@@ -1,59 +1,59 @@
-import { useEffect } from "react";
-import { useSocket } from "./SocketProvider";
-import useConversation from "../Zustand/UserConversation";
+import { useEffect } from 'react'
+import { useSocket } from './SocketProvider'
+import useConversation from '../Zustand/UserConversation'
 
 const useListenMessages = () => {
-  const { socket } = useSocket();
-  const { setMessages, setSelectedConversation, selectedConversation } = useConversation();
+  const { socket } = useSocket()
+  const {
+    setMessages,
+    selectedConversation,
+    addUnread,
+  } = useConversation()
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket) return
 
-    // New message from someone
     const handleNewMessage = (newMessage) => {
-      console.log("📨 Received socket message:", newMessage);
-      if (
-        selectedConversation &&
-        newMessage.senderId?.toString() === selectedConversation._id?.toString()
-      ) {
-        setMessages((prev) => [...prev, newMessage]);
+      const senderId = newMessage.senderId?.toString()
+      const activeChatId = selectedConversation?._id?.toString()
+
+      if (senderId === activeChatId) {
+        // Message is from the currently open conversation → append directly
+        setMessages((prev) => [...prev, newMessage])
+      } else {
+        // Message is from someone else → increment their unread badge
+        addUnread(senderId)
       }
-    };
+    }
 
-    // Other user deleted a message
     const handleMessageDeleted = (messageId) => {
-      setMessages((prev) => prev.filter((m) => m._id !== messageId));
-    };
+      setMessages((prev) => prev.filter((m) => m._id !== messageId))
+    }
 
-    // Other user edited a message
     const handleMessageEdited = (updatedMessage) => {
       setMessages((prev) =>
         prev.map((m) => (m._id === updatedMessage._id ? updatedMessage : m))
-      );
-    };
+      )
+    }
 
-    // Conversation deleted by other user
     const handleConversationDeleted = ({ otherUserId }) => {
-      if (
-        selectedConversation &&
-        selectedConversation._id?.toString() === otherUserId?.toString()
-      ) {
-        setMessages([]);
+      if (selectedConversation?._id?.toString() === otherUserId?.toString()) {
+        setMessages([])
       }
-    };
+    }
 
-    socket.on("newMessage", handleNewMessage);
-    socket.on("messageDeleted", handleMessageDeleted);
-    socket.on("messageEdited", handleMessageEdited);
-    socket.on("conversationDeleted", handleConversationDeleted);
+    socket.on('newMessage', handleNewMessage)
+    socket.on('messageDeleted', handleMessageDeleted)
+    socket.on('messageEdited', handleMessageEdited)
+    socket.on('conversationDeleted', handleConversationDeleted)
 
     return () => {
-      socket.off("newMessage", handleNewMessage);
-      socket.off("messageDeleted", handleMessageDeleted);
-      socket.off("messageEdited", handleMessageEdited);
-      socket.off("conversationDeleted", handleConversationDeleted);
-    };
-  }, [socket, selectedConversation, setMessages]);
-};
+      socket.off('newMessage', handleNewMessage)
+      socket.off('messageDeleted', handleMessageDeleted)
+      socket.off('messageEdited', handleMessageEdited)
+      socket.off('conversationDeleted', handleConversationDeleted)
+    }
+  }, [socket, selectedConversation, setMessages, addUnread])
+}
 
-export default useListenMessages;
+export default useListenMessages

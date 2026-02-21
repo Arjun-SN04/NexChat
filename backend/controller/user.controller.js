@@ -1,6 +1,7 @@
 import Createtoken from "../jwt/token.js"
 import User from "../models/user.model.js"
 import bcrypt from "bcryptjs"
+import { io } from "../socket/socket.js"
 
 export const signup = async (req, res) => {
   const { fullName, email, password, confirmPassword } = req.body
@@ -14,6 +15,8 @@ export const signup = async (req, res) => {
     const newUser = new User({ fullName, email, password: hashedPassword })
     await newUser.save()
     Createtoken(newUser._id, res)
+    // Notify all connected clients that a new user has joined
+    io.emit("newUserJoined", { _id: newUser._id, fullName: newUser.fullName, email: newUser.email })
     return res.status(201).json({ message: "Signed up successfully", newUser })
   } catch (error) {
     console.log(error)
