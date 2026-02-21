@@ -10,12 +10,15 @@ const User = ({ user }) => {
   const { onlineUsers } = useSocket()
   const { dark } = useTheme()
 
-  const isSelected = selectedConversation?._id === user._id
-  const isOnline   = onlineUsers.includes(user._id)
-  const unread     = unreadCounts[user._id] || 0
+  const userId     = user._id?.toString()
+  const isSelected = selectedConversation?._id?.toString() === userId
+  const isOnline   = onlineUsers.includes(userId)
 
-  const initials  = user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-  const color     = COLORS[(user.fullName?.charCodeAt(0) || 0) % COLORS.length]
+  // Lookup using string key — must match what addUnread stores
+  const unread = unreadCounts[userId] || 0
+
+  const initials = user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  const color    = COLORS[(user.fullName?.charCodeAt(0) || 0) % COLORS.length]
 
   const selectedBg = dark ? '#1e2d47' : '#eff2ff'
   const hoverBg    = dark ? '#161f30' : '#f8f9ff'
@@ -26,7 +29,7 @@ const User = ({ user }) => {
 
   const handleClick = () => {
     setSelectedConversation(user)
-    if (unread > 0) clearUnread(user._id)
+    if (unread > 0) clearUnread(userId)
   }
 
   return (
@@ -37,7 +40,7 @@ const User = ({ user }) => {
       onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = hoverBg }}
       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
     >
-      {/* Avatar */}
+      {/* ── Avatar ── */}
       <div className="relative flex-shrink-0">
         <div
           className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[11px] font-bold"
@@ -53,11 +56,32 @@ const User = ({ user }) => {
             style={{ borderColor: dotBorder }}
           />
         )}
+
+        {/* Notification badge — sits on top-right of avatar */}
+        {unread > 0 && !isSelected && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[16px] h-4 px-[3px] rounded-full
+                       flex items-center justify-center text-white font-black
+                       ring-2 ring-white"
+            style={{
+              background: '#6366f1',
+              fontSize: '9px',
+              lineHeight: 1,
+              ringColor: dark ? '#111827' : '#ffffff',
+              animation: 'pulse-badge 1.8s ease-in-out infinite',
+            }}
+          >
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
       </div>
 
-      {/* Name + status */}
+      {/* ── Name + status ── */}
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold truncate leading-none mb-0.5" style={{ color: nameColor }}>
+        <p
+          className="text-[13px] font-semibold truncate leading-none mb-0.5"
+          style={{ color: unread > 0 && !isSelected ? (dark ? '#a5b4fc' : '#4f46e5') : nameColor }}
+        >
           {user.fullName}
         </p>
         <p
@@ -68,23 +92,9 @@ const User = ({ user }) => {
         </p>
       </div>
 
-      {/* Right side: unread badge OR selected dot */}
-      <div className="flex-shrink-0 flex items-center justify-center w-5">
-        {unread > 0 && !isSelected ? (
-          /* Notification badge */
-          <div
-            className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-white font-black"
-            style={{
-              background: '#6366f1',
-              fontSize: '10px',
-              lineHeight: 1,
-              boxShadow: '0 0 0 2px ' + (dark ? '#111827' : '#ffffff'),
-              animation: 'pulse-badge 2s ease-in-out infinite',
-            }}
-          >
-            {unread > 99 ? '99+' : unread}
-          </div>
-        ) : isSelected ? (
+      {/* ── Right indicator ── */}
+      <div className="flex-shrink-0 w-4 flex items-center justify-center">
+        {isSelected && !unread ? (
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
         ) : null}
       </div>

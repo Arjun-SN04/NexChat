@@ -1,27 +1,30 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useSocket } from './SocketProvider'
 import useConversation from '../Zustand/UserConversation'
 
 const useListenMessages = () => {
   const { socket } = useSocket()
-  const {
-    setMessages,
-    selectedConversation,
-    addUnread,
-  } = useConversation()
+  const { setMessages, selectedConversation, addUnread } = useConversation()
+
+  // Keep a ref so socket handlers always read the LATEST selectedConversation
+  // without needing to re-register listeners every time it changes
+  const selectedConvRef = useRef(selectedConversation)
+  useEffect(() => {
+    selectedConvRef.current = selectedConversation
+  }, [selectedConversation])
 
   useEffect(() => {
     if (!socket) return
 
     const handleNewMessage = (newMessage) => {
-      const senderId = newMessage.senderId?.toString()
-      const activeChatId = selectedConversation?._id?.toString()
+      const senderId    = newMessage.senderId?.toString()
+      const activeChatId = selectedConvRef.current?._id?.toString()
 
-      if (senderId === activeChatId) {
-        // Message is from the currently open conversation → append directly
+      if (activeChatId && senderId === activeChatId) {
+        // Message is from the currently open chat — show it immediately
         setMessages((prev) => [...prev, newMessage])
       } else {
-        // Message is from someone else → increment their unread badge
+        // Message is from someone else — show notification badge
         addUnread(senderId)
       }
     }
@@ -37,23 +40,25 @@ const useListenMessages = () => {
     }
 
     const handleConversationDeleted = ({ otherUserId }) => {
-      if (selectedConversation?._id?.toString() === otherUserId?.toString()) {
+      if (selectedConvRef.current?._id?.toString() === otherUserId?.toString()) {
         setMessages([])
       }
     }
 
-    socket.on('newMessage', handleNewMessage)
-    socket.on('messageDeleted', handleMessageDeleted)
-    socket.on('messageEdited', handleMessageEdited)
-    socket.on('conversationDeleted', handleConversationDeleted)
+    socket.on('newMessage',           handleNewMessage)
+    socket.on('messageDeleted',       handleMessageDeleted)
+    socket.on('messageEdited',        handleMessageEdited)
+    socket.on('conversationDeleted',  handleConversationDeleted)
 
     return () => {
-      socket.off('newMessage', handleNewMessage)
-      socket.off('messageDeleted', handleMessageDeleted)
-      socket.off('messageEdited', handleMessageEdited)
+      socket.off('newMessage',          handleNewMessage)
+      socket.off('messageDeleted',      handleMessageDeleted)
+      socket.off('messageEdited',       handleMessageEdited)
       socket.off('conversationDeleted', handleConversationDeleted)
     }
-  }, [socket, selectedConversation, setMessages, addUnread])
+    // Only re-register if socket changes — NOT on selectedConversation change
+    // because we use a ref for that
+  }, [socket, setMessages, addUnread])
 }
 
 export default useListenMessages
