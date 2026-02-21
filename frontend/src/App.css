@@ -1,0 +1,5 @@
+/* App.css - minimal resets, styles handled by Tailwind */
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
