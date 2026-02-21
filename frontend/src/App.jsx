@@ -103,8 +103,8 @@ const ChatLayout = () => {
   return (
     <div
       ref={containerRef}
-      className='flex h-screen overflow-hidden'
-      style={{ background: dark ? '#0f172a' : '#eef1f8' }}
+      className='flex overflow-hidden'
+      style={{ background: dark ? '#0f172a' : '#eef1f8', height: '100dvh' }}
     >
       {/* ── LEFT PANEL ── */}
       <div
