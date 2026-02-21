@@ -254,7 +254,8 @@ const HomePage = () => {
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-slate-100 py-5 text-center text-[11px] text-slate-400">
-        © {new Date().getFullYear()} NexChat &nbsp;·&nbsp; React &nbsp;·&nbsp; Socket.io &nbsp;·&nbsp; MongoDB
+        © {new Date().getFullYear()} NexChat &nbsp;·&nbsp; React &nbsp;·&nbsp; Socket.io &nbsp;·&nbsp; MongoDB &nbsp;·&nbsp; Made by <span className="font-semibold text-indigo-500">Arjun</span>
+        
       </footer>
     </div>
   )
