@@ -39,7 +39,7 @@ app.use("/user", userRoutes)
 app.use("/message", messageRoutes)
 
 app.get("/", (req, res) => {
-  res.send("ChatApp API is running")
+  res.send("NexChat API is running")
 })
 
 server.listen(port, () => {

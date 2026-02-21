@@ -54,7 +54,7 @@ const Left = () => {
 
   return (
     <div
-      className="flex flex-col w-[280px] min-w-[240px] h-full border-r"
+      className="flex flex-col w-full h-full border-r"
       style={{ background: panelBg, borderColor: dark ? '#1e2a3a' : '#e2e8f0' }}
     >
       {/* ── Top bar — slightly different from panel body ── */}
@@ -68,7 +68,7 @@ const Left = () => {
               <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
             </svg>
           </div>
-          <span className="text-[14px] font-bold tracking-tight" style={{ color: titleColor }}>Messages</span>
+          <span className="text-[14px] font-bold tracking-tight" style={{ color: titleColor }}>NexChat</span>
         </div>
         <div className="flex items-center gap-0.5">
           <ThemeToggle />

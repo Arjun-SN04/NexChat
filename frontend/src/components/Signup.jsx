@@ -51,7 +51,7 @@ const Signup = () => {
         </div>
 
         <div className="relative z-10 text-center">
-          <h2 className="text-3xl font-black text-white mb-2">Join ChatApp</h2>
+          <h2 className="text-3xl font-black text-white mb-2">Join NexChat</h2>
           <p className="text-indigo-200 text-sm">Everything you need to stay connected.</p>
         </div>
       </div>
@@ -64,7 +64,7 @@ const Signup = () => {
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow">
               <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
             </div>
-            <span className="text-lg font-bold text-slate-800 group-hover:text-indigo-600 transition">ChatApp</span>
+            <span className="text-lg font-bold text-slate-800 group-hover:text-indigo-600 transition">NexChat</span>
           </Link>
 
           <h1 className="text-3xl font-black text-slate-900 mb-1.5">Create account</h1>

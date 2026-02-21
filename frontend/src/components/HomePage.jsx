@@ -108,12 +108,12 @@ const HomePage = () => {
                 <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
               </svg>
             </div>
-            <span className="font-black text-[15px] text-slate-900 tracking-tight">ChatApp</span>
+            <span className="font-black text-[15px] text-slate-900 tracking-tight">NexChat</span>
           </div>
           <div className="flex items-center gap-2">
             {AuthUser ? (
               <Link to="/" className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold rounded-lg transition shadow-sm">
-                Open chat →
+                Open NexChat →
               </Link>
             ) : (
               <>
@@ -154,7 +154,7 @@ const HomePage = () => {
           <div className="flex items-center gap-3 flex-wrap mb-10">
             <Link to={AuthUser ? '/' : '/signup'}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[14px] rounded-xl transition shadow-md shadow-indigo-200">
-              {AuthUser ? 'Go to chat' : 'Start for free'}
+              {AuthUser ? 'Open NexChat' : 'Start for free'}
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
               </svg>
@@ -246,7 +246,7 @@ const HomePage = () => {
             </div>
             <Link to={AuthUser ? '/' : '/signup'}
               className="flex-shrink-0 inline-flex items-center gap-2 px-6 py-3 bg-white text-indigo-700 font-black text-[14px] rounded-2xl transition hover:bg-indigo-50 shadow-lg">
-              {AuthUser ? 'Open ChatApp' : 'Create free account'} →
+              {AuthUser ? 'Open NexChat' : 'Create free account'} →
             </Link>
           </div>
         </div>
@@ -254,7 +254,7 @@ const HomePage = () => {
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-slate-100 py-5 text-center text-[11px] text-slate-400">
-        © {new Date().getFullYear()} ChatApp &nbsp;·&nbsp; React &nbsp;·&nbsp; Socket.io &nbsp;·&nbsp; MongoDB
+        © {new Date().getFullYear()} NexChat &nbsp;·&nbsp; React &nbsp;·&nbsp; Socket.io &nbsp;·&nbsp; MongoDB
       </footer>
     </div>
   )
