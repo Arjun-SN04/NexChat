@@ -54,7 +54,7 @@ const Left = () => {
 
   return (
     <div
-      className="flex flex-col w-full h-full border-r"
+      className="flex flex-col w-full h-full border-r overflow-hidden"
       style={{ background: panelBg, borderColor: dark ? '#1e2a3a' : '#e2e8f0' }}
     >
       {/* ── Top bar — slightly different from panel body ── */}

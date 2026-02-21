@@ -34,11 +34,18 @@ const Right = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
-      <ChatUser onBack={() => setSelectedConversation(null)} />
-      <div className="flex-1 overflow-hidden flex flex-col" style={{ background: msgBg }}>
+      {/* Fixed header — never scrolls */}
+      <div className="flex-shrink-0" style={{ zIndex: 10 }}>
+        <ChatUser onBack={() => setSelectedConversation(null)} />
+      </div>
+      {/* Scrollable messages area */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ background: msgBg }}>
         <Messages />
       </div>
-      <TypeSent />
+      {/* Fixed input bar */}
+      <div className="flex-shrink-0">
+        <TypeSent />
+      </div>
     </div>
   )
 }

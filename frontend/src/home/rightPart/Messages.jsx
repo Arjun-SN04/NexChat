@@ -15,7 +15,7 @@ const Messages = () => {
   }, [messages])
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4">
+    <div className="flex-1 overflow-y-auto px-4 py-4 h-full">
       {loading ? (
         <div className="flex justify-center items-center h-full">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />

@@ -110,9 +110,9 @@ const ChatLayout = () => {
       <div
         className={`
           flex-shrink-0 flex-col h-full
-          ${selectedConversation ? 'hidden md:flex' : 'flex'}
+          ${selectedConversation ? 'hidden md:flex' : 'flex w-full md:w-auto'}
         `}
-        style={{ width: `${leftWidth}px` }}
+        style={{ width: selectedConversation ? `${leftWidth}px` : undefined }}
       >
         <Left />
       </div>
@@ -163,8 +163,8 @@ const ChatLayout = () => {
       {/* ── RIGHT PANEL ── */}
       <div
         className={`
-          flex-1 flex-col h-full overflow-hidden
-          ${selectedConversation ? 'flex' : 'hidden md:flex'}
+          flex-col h-full overflow-hidden
+          ${selectedConversation ? 'flex flex-1 w-full' : 'hidden md:flex md:flex-1'}
         `}
       >
         <Right />
