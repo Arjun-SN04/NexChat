@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: NexChat-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: token
+        sync: false
+      - key: PORT
+        value: 3000
+      - key: FRONTEND_URL
+        sync: false
