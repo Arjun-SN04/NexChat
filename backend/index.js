@@ -1,3 +1,4 @@
+import dns from "node:dns"
 import express from "express"
 import dotenv from "dotenv"
 import mongoose from "mongoose"
@@ -8,6 +9,9 @@ import messageRoutes from "./routes/message.route.js"
 import { app, server } from "./socket/socket.js"
 
 dotenv.config()
+
+// Use public DNS so the MongoDB Atlas (mongodb+srv) lookup works even if the local router DNS is flaky
+dns.setServers(["8.8.8.8", "1.1.1.1"])
 const port = process.env.PORT || 3000
 const mongo_uri = process.env.MONGODB_URI
 

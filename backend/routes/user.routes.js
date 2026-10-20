@@ -1,5 +1,6 @@
 import express from "express"
-import { allUser, login, logout, signup, updateProfile, getMe } from "../controller/user.controller.js"
+import { allUser, login, logout, signup, updateProfile, getMe, updateAvatar, removeAvatar } from "../controller/user.controller.js"
+import { uploadAvatarSingle } from "../config/cloudinary.js"
 import secureRoute from "../middleware/secureRoute.js"
 
 const router = express.Router()
@@ -9,4 +10,6 @@ router.post("/logout", logout)
 router.get("/allusers", secureRoute, allUser)
 router.put("/update", secureRoute, updateProfile)
 router.get("/me", secureRoute, getMe)
+router.put("/avatar", secureRoute, uploadAvatarSingle("avatar"), updateAvatar)
+router.delete("/avatar", secureRoute, removeAvatar)
 export default router

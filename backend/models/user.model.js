@@ -16,7 +16,12 @@ const userSchema = mongoose.Schema({
     },
     confirmPassword:{
         type:String,
-        
+
+    },
+    // Profile photo stored on Cloudinary (null = show initials)
+    avatar:{
+        type:{ url:String, publicId:String },
+        default:null
     }
 },{timestamps:true}) 
 

@@ -1,51 +1,113 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { AnimatePresence } from 'motion/react'
+import { LuUpload } from 'react-icons/lu'
 import ChatUser from './ChatUser'
 import Messages from './Messages'
 import TypeSent from './TypeSent'
+import ContactInfo from './ContactInfo'
+import ClearChatDialog from './ClearChatDialog'
+import SelectionBar from './SelectionBar'
+import ForwardDialog from './ForwardDialog'
+import Avatar from '../Avatar'
+import { LogoMark } from '../../components/ui'
 import useConversation from '../../Zustand/UserConversation'
-import { useTheme } from '../../context/ThemeProvider'
+import { useSocket } from '../../context/SocketProvider'
+import { useAuth } from '../../context/AuthProvider'
 
-const Right = () => {
-  const { selectedConversation, setSelectedConversation } = useConversation()
-  const { dark } = useTheme()
-
-  const emptyBg   = dark ? '#0f172a' : '#f5f7ff'
-  const emptyIcon = dark ? '#1e2d47' : '#e0e7ff'
-  const emptyH    = dark ? '#e2e8f0' : '#334155'
-  const emptyP    = dark ? '#475569' : '#94a3b8'
-
-  if (!selectedConversation) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center h-full select-none"
-        style={{ background: emptyBg }}>
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3"
-          style={{ background: emptyIcon }}>
-          <svg className="w-6 h-6 text-indigo-500" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-          </svg>
-        </div>
-        <h2 className="text-[14px] font-bold mb-1" style={{ color: emptyH }}>Select a conversation</h2>
-        <p className="text-[12px]" style={{ color: emptyP }}>Pick a contact on the left</p>
-      </div>
-    )
-  }
-
-  const msgBg = dark ? '#0f172a' : '#f5f7ff'
+// Shown when no conversation is open.
+const Welcome = () => {
+  const [AuthUser] = useAuth()
+  const { contacts, setSelectedConversation } = useConversation()
+  const { onlineUsers } = useSocket()
+  const onlineSet = new Set(onlineUsers.map(String))
+  const online = contacts.filter((u) => onlineSet.has(String(u._id))).slice(0, 6)
+  const firstName = AuthUser?.fullName?.split(' ')[0]
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
-      {/* Fixed header — never scrolls */}
-      <div className="flex-shrink-0" style={{ zIndex: 10 }}>
-        <ChatUser onBack={() => setSelectedConversation(null)} />
-      </div>
-      {/* Scrollable messages area */}
-      <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ background: msgBg }}>
+    <div className="chat-bg flex flex-1 flex-col items-center justify-center p-8 text-center">
+      <LogoMark className="size-14" />
+      <h2 className="mt-6 text-2xl font-semibold tracking-tight">Welcome back{firstName ? `, ${firstName}` : ''}</h2>
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+        Pick a conversation from the list to start chatting.
+      </p>
+
+      {online.length > 0 && (
+        <div className="mt-10 w-full max-w-md">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Online now</p>
+          <div className="mt-4 flex flex-wrap justify-center gap-3">
+            {online.map((u) => (
+              <button
+                key={u._id}
+                onClick={() => setSelectedConversation(u)}
+                className="flex w-20 flex-col items-center gap-2 rounded-xl p-2 transition hover:bg-white dark:hover:bg-slate-800"
+              >
+                <Avatar name={u.fullName} src={u.avatar?.url} online />
+                <span className="w-full truncate text-xs font-medium text-slate-700 dark:text-slate-300">{u.fullName.split(' ')[0]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-12 text-xs text-slate-400">
+        Tip: press <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[11px] dark:border-slate-700 dark:bg-slate-800">/</kbd> to search people
+      </p>
+    </div>
+  )
+}
+
+const Right = () => {
+  const { selectedConversation, setSelectedConversation, selectionMode } = useConversation()
+  const [infoOpen, setInfoOpen] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const [dragging, setDragging] = useState(false)
+
+  if (!selectedConversation) return <Welcome />
+
+  const dropHandlers = {
+    onDragOver: (e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) },
+    onDrop: (e) => {
+      e.preventDefault()
+      setDragging(false)
+      const file = e.dataTransfer.files?.[0]
+      if (file) window.dispatchEvent(new CustomEvent('nexchat:attach', { detail: file }))
+    },
+  }
+
+  return (
+    <div className="flex h-full min-w-0 flex-1">
+      <div className="relative flex min-w-0 flex-1 flex-col" {...dropHandlers}>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-3 z-20 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-indigo-400 bg-white/85 text-indigo-600 backdrop-blur-sm dark:bg-slate-950/85 dark:text-indigo-400">
+            <LuUpload className="size-8" />
+            <p className="mt-3 text-sm font-semibold">Drop to attach</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Photos, videos and documents up to 10 MB</p>
+          </div>
+        )}
+        <ChatUser
+          onBack={() => setSelectedConversation(null)}
+          onToggleInfo={() => setInfoOpen((v) => !v)}
+          infoOpen={infoOpen}
+          onClear={() => setConfirmClear(true)}
+        />
         <Messages />
+        {selectionMode ? <SelectionBar /> : <TypeSent />}
       </div>
-      {/* Fixed input bar */}
-      <div className="flex-shrink-0">
-        <TypeSent />
-      </div>
+
+      <AnimatePresence>
+        {infoOpen && (
+          <ContactInfo
+            user={selectedConversation}
+            onClose={() => setInfoOpen(false)}
+            onClear={() => setConfirmClear(true)}
+          />
+        )}
+      </AnimatePresence>
+
+      <ClearChatDialog open={confirmClear} onClose={() => setConfirmClear(false)} />
+      <ForwardDialog />
     </div>
   )
 }

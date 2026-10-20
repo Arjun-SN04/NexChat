@@ -1,25 +1,84 @@
-import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import React, { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import axios from 'axios'
+import { AnimatePresence, motion } from 'motion/react'
+import { LuArrowLeft, LuCamera, LuKeyRound, LuLoaderCircle, LuLock, LuMail, LuTrash2, LuUser } from 'react-icons/lu'
 import { useAuth } from '../context/AuthProvider'
+import { Alert, Button, Card, Input, Logo } from './ui'
+import usePageTitle from '../hooks/usePageTitle'
+import useThemeClass from '../hooks/useThemeClass'
+import { compressAvatar } from '../utils/attachments'
+
+const TABS = [
+  { id: 'profile', label: 'Profile', Icon: LuUser },
+  { id: 'password', label: 'Password', Icon: LuKeyRound },
+]
+
+const AVATAR_COLORS = [
+  'from-violet-500 to-indigo-600',
+  'from-pink-500 to-rose-600',
+  'from-emerald-500 to-teal-600',
+  'from-amber-500 to-orange-600',
+  'from-blue-500 to-cyan-600',
+]
 
 const Profile = () => {
+  usePageTitle('Profile settings')
+  useThemeClass()
   const [AuthUser, setAuthUser] = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const navigate = useNavigate()
 
   const initials = AuthUser?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?'
+  const colorIdx = (AuthUser?.fullName?.charCodeAt(0) || 0) % AVATAR_COLORS.length
 
   const { register: regProfile, handleSubmit: handleProfile, formState: { errors: profileErrors } } = useForm({
     defaultValues: { fullName: AuthUser?.fullName || '' }
   })
-
   const { register: regPass, handleSubmit: handlePass, formState: { errors: passErrors }, watch, reset: resetPass } = useForm()
   const newPass = watch('newPassword', '')
+
+  // ── Profile photo ──
+  const photoInput = useRef(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+
+  const saveUser = (user) => {
+    localStorage.setItem('chatUser', JSON.stringify(user))
+    setAuthUser(user)
+  }
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoBusy(true)
+    try {
+      const body = new FormData()
+      body.append('avatar', await compressAvatar(file))
+      const res = await axios.put('/api/user/avatar', body, { withCredentials: true })
+      saveUser(res.data.user)
+      showMsg('success', 'Your profile photo has been updated.')
+    } catch (err) {
+      showMsg('error', err.response?.data?.error || err.message || 'Could not update your photo.')
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
+  const removePhoto = async () => {
+    setPhotoBusy(true)
+    try {
+      const res = await axios.delete('/api/user/avatar', { withCredentials: true })
+      saveUser(res.data.user)
+      showMsg('success', 'Your profile photo has been removed.')
+    } catch (err) {
+      showMsg('error', err.response?.data?.error || 'Could not remove your photo.')
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
 
   const showMsg = (type, msg) => {
     if (type === 'success') { setSuccess(msg); setError('') }
@@ -34,7 +93,7 @@ const Profile = () => {
       const updated = res.data.user
       localStorage.setItem('chatUser', JSON.stringify(updated))
       setAuthUser(updated)
-      showMsg('success', 'Name updated successfully!')
+      showMsg('success', 'Your name has been updated.')
     } catch (err) {
       showMsg('error', err.response?.data?.error || 'Update failed')
     } finally { setIsLoading(false) }
@@ -47,122 +106,156 @@ const Profile = () => {
         currentPassword: data.currentPassword,
         newPassword: data.newPassword
       }, { withCredentials: true })
-      showMsg('success', 'Password updated successfully!')
+      showMsg('success', 'Your password has been updated.')
       resetPass()
     } catch (err) {
       showMsg('error', err.response?.data?.error || 'Password update failed')
     } finally { setIsLoading(false) }
   }
 
-  const avatarColors = [
-    'from-violet-500 to-indigo-600',
-    'from-pink-500 to-rose-600',
-    'from-emerald-500 to-teal-600',
-    'from-amber-500 to-orange-600',
-    'from-blue-500 to-cyan-600',
-  ]
-  const colorIdx = (AuthUser?.fullName?.charCodeAt(0) || 0) % avatarColors.length
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top nav */}
-      <nav className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center gap-4">
-        <Link to="/" className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition text-sm font-medium">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-          Back to Chat
-        </Link>
-        <div className="h-5 w-px bg-slate-200" />
-        <span className="text-sm font-semibold text-slate-700">Profile Settings</span>
+    <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <nav className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/80">
+        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-5 sm:px-8">
+          <Logo to="/" />
+          <Button to="/" variant="ghost" size="sm" leftIcon={LuArrowLeft}>Back to chats</Button>
+        </div>
       </nav>
 
-      <div className="max-w-2xl mx-auto px-4 py-10">
-        {/* Avatar + name card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-6 flex items-center gap-6">
-          <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${avatarColors[colorIdx]} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
-            {initials}
+      <main className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Account settings</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage your profile and security.</p>
+
+        {/* Identity */}
+        <Card className="mt-8 flex flex-col gap-5 p-6 sm:flex-row sm:items-center">
+          <div className="relative w-fit shrink-0">
+            {AuthUser?.avatar?.url ? (
+              <img src={AuthUser.avatar.url} alt="Your profile photo" className="size-20 rounded-2xl object-cover shadow-md" />
+            ) : (
+              <div className={`flex size-20 items-center justify-center rounded-2xl bg-linear-to-br ${AVATAR_COLORS[colorIdx]} text-2xl font-semibold text-white shadow-md`}>
+                {initials}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => photoInput.current?.click()}
+              disabled={photoBusy}
+              aria-label="Change profile photo"
+              title="Change photo"
+              className="absolute -bottom-1.5 -right-1.5 flex size-8 items-center justify-center rounded-full bg-indigo-600 text-white shadow-md ring-2 ring-white transition hover:bg-indigo-500 dark:ring-slate-900"
+            >
+              {photoBusy ? <LuLoaderCircle className="size-4 animate-spin" /> : <LuCamera className="size-4" />}
+            </button>
+            <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden onChange={onPickPhoto} />
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900">{AuthUser?.fullName}</h1>
-            <p className="text-slate-500 text-sm mt-0.5">{AuthUser?.email}</p>
-            <span className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-              Active account
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-lg font-semibold text-slate-900 dark:text-white">{AuthUser?.fullName}</p>
+            <p className="truncate text-sm text-slate-500 dark:text-slate-400">{AuthUser?.email}</p>
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Active
             </span>
           </div>
-        </div>
-
-        {/* Alert */}
-        {success && (
-          <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm flex items-center gap-2">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-            {success}
-          </div>
-        )}
-        {error && (
-          <div className="mb-4 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center gap-2">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
-            {error}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex border-b border-slate-200">
-            {[{ id: 'profile', label: '👤 Edit Name' }, { id: 'password', label: '🔒 Change Password' }].map(t => (
-              <button key={t.id} onClick={() => setActiveTab(t.id)}
-                className={`flex-1 py-3.5 text-sm font-semibold transition ${activeTab === t.id ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:text-slate-700'}`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-8">
-            {activeTab === 'profile' && (
-              <form onSubmit={handleProfile(onUpdateProfile)} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Full Name</label>
-                  <input type="text" placeholder="Your full name"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition text-sm"
-                    {...regProfile('fullName', { required: 'Name is required' })} />
-                  {profileErrors.fullName && <p className="mt-1.5 text-xs text-red-500">{profileErrors.fullName.message}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email address</label>
-                  <input type="email" value={AuthUser?.email || ''} disabled
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-sm cursor-not-allowed" />
-                  <p className="mt-1.5 text-xs text-slate-400">Email cannot be changed</p>
-                </div>
-                <button type="submit" disabled={isLoading}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition disabled:opacity-60">
-                  {isLoading ? 'Saving...' : 'Save changes'}
-                </button>
-              </form>
-            )}
-
-            {activeTab === 'password' && (
-              <form onSubmit={handlePass(onUpdatePassword)} className="space-y-5">
-                {[
-                  { name: 'currentPassword', label: 'Current Password', rules: { required: 'Current password is required' } },
-                  { name: 'newPassword', label: 'New Password', rules: { required: 'New password is required', minLength: { value: 6, message: 'Minimum 6 characters' } } },
-                  { name: 'confirmNew', label: 'Confirm New Password', rules: { required: 'Please confirm', validate: v => v === newPass || "Passwords don't match" } },
-                ].map(({ name, label, rules }) => (
-                  <div key={name}>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>
-                    <input type="password" placeholder="••••••••"
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition text-sm"
-                      {...regPass(name, rules)} />
-                    {passErrors[name] && <p className="mt-1.5 text-xs text-red-500">{passErrors[name].message}</p>}
-                  </div>
-                ))}
-                <button type="submit" disabled={isLoading}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition disabled:opacity-60">
-                  {isLoading ? 'Updating...' : 'Update password'}
-                </button>
-              </form>
+          <div className="flex gap-2 sm:flex-col">
+            <Button variant="secondary" size="sm" leftIcon={LuCamera} disabled={photoBusy} onClick={() => photoInput.current?.click()}>
+              {AuthUser?.avatar?.url ? 'Change photo' : 'Upload photo'}
+            </Button>
+            {AuthUser?.avatar?.url && (
+              <Button variant="ghost" size="sm" leftIcon={LuTrash2} disabled={photoBusy} onClick={removePhoto} className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-500/10">
+                Remove
+              </Button>
             )}
           </div>
-        </div>
-      </div>
+        </Card>
+
+        {/* Settings */}
+        <Card className="mt-6 overflow-hidden">
+          <div className="border-b border-slate-100 px-6 pt-4 dark:border-slate-800">
+            <div className="flex gap-6">
+              {TABS.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`relative flex items-center gap-2 pb-3.5 text-sm font-medium transition ${
+                    activeTab === id ? 'text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  {label}
+                  {activeTab === id && (
+                    <motion.span layoutId="profile-tab" className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-indigo-600" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-6 sm:p-8">
+            <Alert type="success" message={success} className="mb-6" />
+            <Alert type="error" message={error} className="mb-6" />
+
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.18 }}
+              >
+                {activeTab === 'profile' ? (
+                  <form onSubmit={handleProfile(onUpdateProfile)} className="max-w-md space-y-5" noValidate>
+                    <Input
+                      label="Full name"
+                      icon={LuUser}
+                      placeholder="Your full name"
+                      error={profileErrors.fullName?.message}
+                      {...regProfile('fullName', { required: 'Name is required' })}
+                    />
+                    <Input
+                      label="Email address"
+                      type="email"
+                      icon={LuMail}
+                      value={AuthUser?.email || ''}
+                      disabled
+                      hint="Your email address can't be changed."
+                    />
+                    <Button type="submit" loading={isLoading}>{isLoading ? 'Saving...' : 'Save changes'}</Button>
+                  </form>
+                ) : (
+                  <form onSubmit={handlePass(onUpdatePassword)} className="max-w-md space-y-5" noValidate>
+                    <Input
+                      label="Current password"
+                      type="password"
+                      icon={LuLock}
+                      autoComplete="current-password"
+                      error={passErrors.currentPassword?.message}
+                      {...regPass('currentPassword', { required: 'Current password is required' })}
+                    />
+                    <Input
+                      label="New password"
+                      type="password"
+                      icon={LuLock}
+                      autoComplete="new-password"
+                      hint="At least 6 characters."
+                      error={passErrors.newPassword?.message}
+                      {...regPass('newPassword', { required: 'New password is required', minLength: { value: 6, message: 'Minimum 6 characters' } })}
+                    />
+                    <Input
+                      label="Confirm new password"
+                      type="password"
+                      icon={LuLock}
+                      autoComplete="new-password"
+                      error={passErrors.confirmNew?.message}
+                      {...regPass('confirmNew', { required: 'Please confirm', validate: v => v === newPass || "Passwords don't match" })}
+                    />
+                    <Button type="submit" loading={isLoading}>{isLoading ? 'Updating...' : 'Update password'}</Button>
+                  </form>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </Card>
+      </main>
     </div>
   )
 }

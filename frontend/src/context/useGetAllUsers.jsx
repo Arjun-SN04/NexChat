@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Cookies from 'js-cookie'
 import axios from 'axios'
 import { useSocket } from './SocketProvider'
+import useConversation from '../Zustand/UserConversation'
 
 const useGetAllUsers = () => {
   const [allUser, setAllUser] = useState([])
@@ -42,8 +43,21 @@ const useGetAllUsers = () => {
       })
     }
 
+    // Someone changed their name or photo: update the list and the open chat
+    const handleUserUpdated = (updated) => {
+      setAllUser((prev) => prev.map((u) => (u._id === updated._id ? { ...u, ...updated } : u)))
+      const { selectedConversation } = useConversation.getState()
+      if (selectedConversation?._id === updated._id) {
+        useConversation.setState({ selectedConversation: { ...selectedConversation, ...updated } })
+      }
+    }
+
     socket.on('newUserJoined', handleNewUser)
-    return () => socket.off('newUserJoined', handleNewUser)
+    socket.on('userUpdated', handleUserUpdated)
+    return () => {
+      socket.off('newUserJoined', handleNewUser)
+      socket.off('userUpdated', handleUserUpdated)
+    }
   }, [socket])
 
   return [allUser, loading]

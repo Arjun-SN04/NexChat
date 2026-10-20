@@ -1,104 +1,80 @@
 import React from 'react'
 import useConversation from '../../Zustand/UserConversation'
-import { useSocket } from '../../context/SocketProvider'
-import { useTheme } from '../../context/ThemeProvider'
+import Avatar from '../Avatar'
+import { shortTime } from '../../utils/conversations'
+import { attachmentLabel } from '../../utils/attachments'
+import { LuFileText, LuImage, LuMic, LuVideo } from 'react-icons/lu'
 
-const COLORS = ['#6366f1','#ec4899','#10b981','#f59e0b','#3b82f6','#8b5cf6']
-
-const User = ({ user }) => {
-  const { selectedConversation, setSelectedConversation, unreadCounts, clearUnread } = useConversation()
-  const { onlineUsers } = useSocket()
-  const { dark } = useTheme()
-
-  const userId     = user._id?.toString()
+// One row in the contact list.
+const User = ({ user, online, unread, preview, typing, myId }) => {
+  const { selectedConversation, setSelectedConversation, clearUnread } = useConversation()
+  const userId = user._id?.toString()
   const isSelected = selectedConversation?._id?.toString() === userId
-  const isOnline   = onlineUsers.includes(userId)
 
-  // Lookup using string key — must match what addUnread stores
-  const unread = unreadCounts[userId] || 0
-
-  const initials = user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-  const color    = COLORS[(user.fullName?.charCodeAt(0) || 0) % COLORS.length]
-
-  const selectedBg = dark ? '#1e2d47' : '#eff2ff'
-  const hoverBg    = dark ? '#161f30' : '#f8f9ff'
-  const nameColor  = dark
-    ? (isSelected ? '#a5b4fc' : '#cbd5e1')
-    : (isSelected ? '#4f46e5' : '#1e293b')
-  const dotBorder  = dark ? '#111827' : '#ffffff'
-
-  const handleClick = () => {
+  const open = () => {
     setSelectedConversation(user)
     if (unread > 0) clearUnread(userId)
   }
 
   return (
-    <div
-      onClick={handleClick}
-      className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all duration-100 mb-0.5"
-      style={{ background: isSelected ? selectedBg : 'transparent' }}
-      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = hoverBg }}
-      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+    <button
+      onClick={open}
+      aria-current={isSelected ? 'true' : undefined}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+        isSelected
+          ? 'bg-indigo-50 dark:bg-indigo-500/10'
+          : 'hover:bg-slate-50 dark:hover:bg-slate-900'
+      }`}
     >
-      {/* ── Avatar ── */}
-      <div className="relative flex-shrink-0">
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[11px] font-bold"
-          style={{ background: color }}
-        >
-          {initials}
-        </div>
+      <Avatar name={user.fullName} src={user.avatar?.url} online={online} />
 
-        {/* Online dot */}
-        {isOnline && (
-          <span
-            className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border-2"
-            style={{ borderColor: dotBorder }}
-          />
-        )}
-
-        {/* Notification badge — sits on top-right of avatar */}
-        {unread > 0 && !isSelected && (
-          <span
-            className="absolute -top-1 -right-1 min-w-[16px] h-4 px-[3px] rounded-full
-                       flex items-center justify-center text-white font-black
-                       ring-2 ring-white"
-            style={{
-              background: '#6366f1',
-              fontSize: '9px',
-              lineHeight: 1,
-              ringColor: dark ? '#111827' : '#ffffff',
-              animation: 'pulse-badge 1.8s ease-in-out infinite',
-            }}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p
+            className={`truncate text-sm ${
+              isSelected
+                ? 'font-semibold text-indigo-700 dark:text-indigo-300'
+                : unread
+                  ? 'font-semibold text-slate-900 dark:text-white'
+                  : 'font-medium text-slate-800 dark:text-slate-200'
+            }`}
           >
-            {unread > 99 ? '99+' : unread}
-          </span>
-        )}
+            {user.fullName}
+          </p>
+          {preview && (
+            <span className={`shrink-0 text-[11px] ${unread && !isSelected ? 'font-semibold text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>
+              {shortTime(preview.createdAt)}
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex items-center gap-2">
+          <p className={`min-w-0 flex-1 truncate text-[13px] ${unread && !isSelected ? 'font-medium text-slate-700 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+            {typing ? (
+              <span className="font-medium text-indigo-600 dark:text-indigo-400">typing…</span>
+            ) : preview ? (
+              <>
+                {String(preview.senderId) === myId && <span className="text-slate-400">You: </span>}
+                {preview.attachment && (
+                  <span className="mr-1 inline-flex translate-y-0.5 text-slate-400">
+                    {preview.attachment.kind === 'image' ? <LuImage className="size-3.5" /> : preview.attachment.kind === 'video' ? <LuVideo className="size-3.5" /> : preview.attachment.kind === 'audio' ? <LuMic className="size-3.5" /> : <LuFileText className="size-3.5" />}
+                  </span>
+                )}
+                {preview.message || attachmentLabel(preview.attachment)}
+              </>
+            ) : online ? (
+              <span className="text-emerald-600 dark:text-emerald-400">Online</span>
+            ) : (
+              user.email
+            )}
+          </p>
+          {unread > 0 && !isSelected && (
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 px-1.5 text-[11px] font-semibold text-white">
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </div>
       </div>
-
-      {/* ── Name + status ── */}
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-[13px] font-semibold truncate leading-none mb-0.5"
-          style={{ color: unread > 0 && !isSelected ? (dark ? '#a5b4fc' : '#4f46e5') : nameColor }}
-        >
-          {user.fullName}
-        </p>
-        <p
-          className="text-[11px] truncate"
-          style={{ color: isOnline ? '#10b981' : (dark ? '#475569' : '#94a3b8') }}
-        >
-          {isOnline ? 'Online' : user.email}
-        </p>
-      </div>
-
-      {/* ── Right indicator ── */}
-      <div className="flex-shrink-0 w-4 flex items-center justify-center">
-        {isSelected && !unread ? (
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-        ) : null}
-      </div>
-    </div>
+    </button>
   )
 }
 

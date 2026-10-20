@@ -36,6 +36,14 @@ io.on("connection", (socket) => {
   // Broadcast updated online users to everyone
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+  // Typing indicator: relay to the person being typed to
+  const relay = (event) => ({ to } = {}) => {
+    const targetSocketId = to && userSocketMap[to]
+    if (targetSocketId && userId) io.to(targetSocketId).emit(event, { from: userId })
+  }
+  socket.on("typing", relay("typing"))
+  socket.on("stopTyping", relay("stopTyping"))
+
   socket.on("disconnect", () => {
     if (userId && userSocketMap[userId] === socket.id) {
       delete userSocketMap[userId];

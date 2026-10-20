@@ -1,121 +1,294 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import axios from 'axios'
+import { LuCheck, LuCheckCheck, LuCopy, LuForward, LuPencil, LuReply, LuSmilePlus, LuSquareCheck, LuTrash2 } from 'react-icons/lu'
 import useConversation from '../../Zustand/UserConversation'
-import { useTheme } from '../../context/ThemeProvider'
+import Avatar from '../Avatar'
+import Attachment from './Attachment'
+import ConfirmDialog from '../ConfirmDialog'
+import { attachmentLabel } from '../../utils/attachments'
+import { canEdit, groupReactions, jumpToMessage, toggleReaction } from '../../utils/messages'
+import ReactionPicker from './ReactionPicker'
+import { loadConversations } from '../../utils/conversations'
 
-const Message = ({ messages }) => {
-  const authUser = JSON.parse(localStorage.getItem('chatUser') || '{}')
-  const itsMe = messages?.senderId?.toString() === authUser?._id?.toString()
-  const { messages: allMessages, setMessages } = useConversation()
-  const { dark } = useTheme()
+const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+const LONG_PRESS_MS = 450
 
-  const [showMenu, setShowMenu] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editText, setEditText] = useState(messages.message)
+const ActionButton = ({ onClick, label, danger = false, children }) => (
+  <button
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    className={`flex size-7 items-center justify-center rounded-md text-slate-500 transition dark:text-slate-400 ${
+      danger
+        ? 'hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400'
+        : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-700 dark:hover:text-white'
+    }`}
+  >
+    {children}
+  </button>
+)
+
+// A single chat bubble.
+// `first`/`last`: position inside a group of consecutive messages from one person.
+// `original`: the message this one replies to (null if it was deleted, undefined if not a reply).
+const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId, original, now }) => {
+  const {
+    setMessages, editingMessage, setEditingMessage, replyingTo, setReplyingTo, highlightedId, setHighlightedId,
+    selectionMode, selectedIds, startSelection, toggleSelected, setForwardIds,
+  } = useConversation()
   const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showActions, setShowActions] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerPlacement, setPickerPlacement] = useState('top')
+  const pressTimer = useRef(null)
 
-  if (!messages) return null
-
-  const time = new Date(messages.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const id = message._id
+  const isEditing = editingMessage?._id === id
+  const isReplyTarget = replyingTo?._id === id
+  const isSelected = selectedIds.includes(id)
+  const editable = itsMe && canEdit(message, now)
+  const contactFirst = contactName?.split(' ')[0]
 
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      await axios.delete(`/api/message/delete/${messages._id}`, { withCredentials: true })
-      setMessages(allMessages.filter(m => m._id !== messages._id))
-    } catch (err) { console.log(err) }
-    finally { setDeleting(false) }
+      await axios.delete(`/api/message/delete/${id}`, { withCredentials: true })
+      setMessages((prev) => prev.filter((m) => m._id !== id))
+      if (isEditing) setEditingMessage(null)
+      if (isReplyTarget) setReplyingTo(null)
+      loadConversations()
+    } catch (err) {
+      console.log(err)
+      setDeleting(false)
+    }
+    setConfirmDelete(false)
   }
 
-  const handleEdit = async () => {
-    if (!editText.trim() || editText === messages.message) { setEditing(false); return }
+  // Reactions: update instantly, then sync with the server's answer
+  const react = async (emoji) => {
+    setPickerOpen(false)
+    setShowActions(false)
+    setMessages((prev) => prev.map((m) => (m._id === id ? { ...m, reactions: toggleReaction(m.reactions, myId, emoji) } : m)))
     try {
-      const res = await axios.put(`/api/message/edit/${messages._id}`, { message: editText }, { withCredentials: true })
-      setMessages(allMessages.map(m => m._id === messages._id ? res.data : m))
-      setEditing(false)
-    } catch (err) { console.log(err) }
+      const res = await axios.put(`/api/message/react/${id}`, { emoji }, { withCredentials: true })
+      setMessages((prev) => prev.map((m) => (m._id === id ? { ...m, reactions: res.data.reactions } : m)))
+    } catch (err) {
+      console.log(err)
+      // Undo the optimistic change
+      setMessages((prev) => prev.map((m) => (m._id === id ? { ...m, reactions: toggleReaction(m.reactions, myId, emoji) } : m)))
+    }
+  }
+  const myReaction = message.reactions?.find((r) => String(r.userId) === myId)?.emoji
+  const reactionGroups = groupReactions(message.reactions)
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(message.message || message.attachment?.url || '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch { /* clipboard not available */ }
   }
 
-  // Received bubble adapts to theme
-  const receivedBg     = dark ? '#1e2d3d' : '#ffffff'
-  const receivedColor  = dark ? '#e2e8f0' : '#1e293b'
-  const receivedBorder = dark ? '#2a3d52' : '#e8edf5'
-  const timeColor      = dark ? '#4b5563' : '#94a3b8'
-  const menuBg         = dark ? '#1e2433' : '#ffffff'
-  const menuBorder     = dark ? '#2a3347' : '#e2e8f0'
+  // Touch: press and hold a message to start selecting
+  const onTouchStart = () => {
+    if (selectionMode) return
+    pressTimer.current = setTimeout(() => startSelection(id), LONG_PRESS_MS)
+  }
+  const cancelPress = () => clearTimeout(pressTimer.current)
+
+  const onBubbleClick = () => {
+    if (selectionMode) toggleSelected(id)
+    else setShowActions((v) => !v)
+  }
+
+  // Photos and videos get a tighter frame around them
+  const media = ['image', 'video'].includes(message.attachment?.kind)
+
+  // Bubble shape: flatten the corner that points at the neighbouring bubble
+  const corners = itsMe
+    ? `rounded-br-md ${first ? '' : 'rounded-tr-md'}`
+    : `rounded-bl-md ${first ? '' : 'rounded-tl-md'}`
+
+  const ring = isEditing || isReplyTarget || highlightedId === id
+    ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-900'
+    : ''
+
+  const close = (fn) => () => { fn(); setShowActions(false) }
+
+  const actions = !selectionMode && (
+    <div
+      className={`mb-5 flex shrink-0 items-center rounded-lg bg-white p-0.5 shadow-sm ring-1 ring-slate-200 transition-opacity dark:bg-slate-800 dark:ring-slate-700 ${
+        showActions || pickerOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+      } relative group-hover:pointer-events-auto group-hover:opacity-100`}
+    >
+      {pickerOpen && (
+        <ReactionPicker
+          current={myReaction}
+          onPick={react}
+          onClose={() => setPickerOpen(false)}
+          align={itsMe ? 'right' : 'left'}
+          placement={pickerPlacement}
+        />
+      )}
+      <ActionButton
+        label="React"
+        onClick={(e) => {
+          // Open below the message if there isn't room above it
+          const top = e.currentTarget.getBoundingClientRect().top
+          const areaTop = e.currentTarget.closest('.chat-bg')?.getBoundingClientRect().top ?? 0
+          setPickerPlacement(top - areaTop < 220 ? 'bottom' : 'top')
+          setPickerOpen((v) => !v)
+        }}
+      >
+        <LuSmilePlus className="size-3.5" />
+      </ActionButton>
+      <ActionButton label="Reply" onClick={close(() => setReplyingTo(message))}>
+        <LuReply className="size-3.5" />
+      </ActionButton>
+      <ActionButton label="Forward" onClick={close(() => setForwardIds([id]))}>
+        <LuForward className="size-3.5" />
+      </ActionButton>
+      <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={copyText}>
+        {copied ? <LuCheck className="size-3.5 text-emerald-600" /> : <LuCopy className="size-3.5" />}
+      </ActionButton>
+      {editable && (
+        <ActionButton label="Edit" onClick={close(() => setEditingMessage(message))}>
+          <LuPencil className="size-3.5" />
+        </ActionButton>
+      )}
+      <ActionButton label="Select" onClick={close(() => startSelection(id))}>
+        <LuSquareCheck className="size-3.5" />
+      </ActionButton>
+      {itsMe && (
+        <ActionButton label="Delete" danger onClick={close(() => setConfirmDelete(true))}>
+          <LuTrash2 className="size-3.5" />
+        </ActionButton>
+      )}
+    </div>
+  )
+
+  const quote = message.replyTo && (
+    <button
+      onClick={(e) => { e.stopPropagation(); if (original && !selectionMode) jumpToMessage(original._id, setHighlightedId) }}
+      disabled={!original}
+      className={`mb-1.5 block w-full rounded-lg border-l-[3px] px-2.5 py-1.5 text-left text-xs transition ${
+        itsMe
+          ? 'border-white/70 bg-white/15 text-indigo-50 hover:bg-white/20'
+          : 'border-indigo-400 bg-slate-100 text-slate-600 hover:bg-slate-200/70 dark:bg-slate-700/60 dark:text-slate-300'
+      }`}
+    >
+      {original ? (
+        <>
+          <span className="block font-semibold">{String(original.senderId) === myId ? 'You' : contactFirst}</span>
+          <span className="line-clamp-2">{original.message || attachmentLabel(original.attachment)}</span>
+        </>
+      ) : (
+        <span className="italic opacity-80">Original message was deleted</span>
+      )}
+    </button>
+  )
 
   return (
     <div
-      className={`flex ${itsMe ? 'justify-end' : 'justify-start'} mb-1.5`}
-      onMouseLeave={() => setShowMenu(false)}
+      id={`msg-${id}`}
+      onClick={selectionMode ? () => toggleSelected(id) : undefined}
+      onTouchStart={onTouchStart}
+      onTouchEnd={cancelPress}
+      onTouchMove={cancelPress}
+      className={`group -mx-2 flex scroll-my-24 items-end gap-2 rounded-xl px-2 transition-colors ${itsMe ? 'justify-end' : ''} ${
+        last ? 'mb-3 pb-1' : 'mb-0.5'
+      } ${selectionMode ? 'cursor-pointer select-none' : ''} ${isSelected ? 'bg-indigo-500/10' : ''}`}
     >
-      <div className="max-w-[70%] relative">
-        {editing ? (
-          <div className="flex gap-1.5 items-center flex-wrap">
-            <input
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleEdit(); if (e.key === 'Escape') setEditing(false) }}
-              autoFocus
-              className="px-3 py-1.5 rounded-xl text-[13px] focus:outline-none min-w-[120px]"
-              style={{ background: dark ? '#1e2d3d' : '#fff', border: '2px solid #6366f1', color: dark ? '#e2e8f0' : '#1e293b' }}
-            />
-            <button onClick={handleEdit}
-              className="px-2 py-1 text-white text-[11px] font-bold rounded-lg"
-              style={{ background: '#6366f1' }}>Save</button>
-            <button onClick={() => setEditing(false)}
-              className="px-2 py-1 text-[11px] font-bold rounded-lg"
-              style={{ background: dark ? '#2a3347' : '#e2e8f0', color: dark ? '#94a3b8' : '#475569' }}>✕</button>
-          </div>
-        ) : (
-          <div>
-            <div
-              className={`relative px-3.5 py-2 rounded-2xl text-[13px] leading-relaxed cursor-default transition-opacity ${deleting ? 'opacity-40' : ''}`}
-              style={itsMe
-                ? { background: '#4f46e5', color: '#fff', borderBottomRightRadius: '4px', boxShadow: '0 1px 6px rgba(79,70,229,0.3)' }
-                : { background: receivedBg, color: receivedColor, borderBottomLeftRadius: '4px', border: `1px solid ${receivedBorder}`, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }
-              }
-              onMouseEnter={() => itsMe && setShowMenu(true)}
-            >
-              {messages.message}
-              {messages.edited && (
-                <span className="text-[10px] ml-1.5 opacity-50">(edited)</span>
-              )}
+      {/* Selection checkbox */}
+      {selectionMode && (
+        <span
+          className={`mb-2 flex size-5 shrink-0 ${itsMe ? 'mr-auto' : ''} items-center justify-center self-center rounded-full border-2 transition ${
+            isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900'
+          }`}
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label="Select message"
+        >
+          {isSelected && <LuCheck className="size-3" />}
+        </span>
+      )}
 
-              {/* Action tooltip */}
-              {itsMe && showMenu && (
-                <div className="absolute -top-8 right-0 flex items-center gap-0.5 rounded-lg px-1 py-1 z-10 shadow-lg"
-                  style={{ background: menuBg, border: `1px solid ${menuBorder}` }}>
-                  <button
-                    onClick={() => { setEditing(true); setShowMenu(false) }}
-                    className="w-6 h-6 flex items-center justify-center rounded transition"
-                    style={{ color: dark ? '#64748b' : '#94a3b8' }}
-                    onMouseEnter={e => { e.currentTarget.style.color = '#6366f1'; e.currentTarget.style.background = dark ? '#1e2d3d' : '#eff2ff' }}
-                    onMouseLeave={e => { e.currentTarget.style.color = dark ? '#64748b' : '#94a3b8'; e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => { handleDelete(); setShowMenu(false) }}
-                    className="w-6 h-6 flex items-center justify-center rounded transition"
-                    style={{ color: dark ? '#64748b' : '#94a3b8' }}
-                    onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = dark ? '#2d1b1b' : '#fee2e2' }}
-                    onMouseLeave={e => { e.currentTarget.style.color = dark ? '#64748b' : '#94a3b8'; e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-            <p className={`text-[10px] mt-0.5 px-0.5 ${itsMe ? 'text-right' : 'text-left'}`}
-              style={{ color: timeColor }}>{time}</p>
+      {!itsMe && (last ? <Avatar name={contactName} src={contactAvatar} size="xs" /> : <div className="w-7 shrink-0" />)}
+      {itsMe && actions}
+
+      <div className={`flex max-w-[80%] flex-col sm:max-w-[70%] lg:max-w-[min(60%,640px)] ${itsMe ? 'items-end' : 'items-start'}`}>
+        <div
+          onClick={selectionMode ? undefined : onBubbleClick}
+          onDoubleClick={selectionMode ? undefined : (e) => { e.preventDefault(); window.getSelection()?.removeAllRanges(); react('❤️') }}
+          title={new Date(message.createdAt).toLocaleString()}
+          className={`rounded-2xl text-[14px] leading-relaxed transition ${media ? 'p-1.5' : 'px-3.5 py-2'} ${corners} ${ring} ${deleting ? 'opacity-40' : ''} ${
+            itsMe
+              ? 'bg-indigo-600 text-white'
+              : 'bg-white text-slate-800 shadow-xs dark:bg-slate-800 dark:text-slate-100'
+          } ${!itsMe && !ring ? 'ring-1 ring-slate-200/80 dark:ring-slate-700/60' : ''} ${selectionMode ? 'pointer-events-none' : ''}`}
+        >
+          {message.forwarded && (
+            <p className={`mb-1 flex items-center gap-1 text-[11px] italic ${media ? 'px-2 pt-1' : ''} ${itsMe ? 'text-indigo-200' : 'text-slate-400'}`}>
+              <LuForward className="size-3" /> Forwarded
+            </p>
+          )}
+          {quote}
+          {message.attachment && <Attachment attachment={message.attachment} itsMe={itsMe} />}
+          {message.message && (
+            <span className={`block whitespace-pre-wrap wrap-break-word ${media ? 'px-2 pb-1 pt-1.5' : message.attachment ? 'pt-2' : ''}`}>
+              {message.message}
+            </span>
+          )}
+        </div>
+
+        {reactionGroups.length > 0 && (
+          <div className={`relative z-10 -mt-1.5 flex flex-wrap gap-1 ${itsMe ? 'justify-end pr-2' : 'pl-2'}`}>
+            {reactionGroups.map((g) => {
+              const mine = g.userIds.includes(myId)
+              const who = g.userIds.map((u) => (u === myId ? 'You' : contactFirst)).join(', ')
+              return (
+                <button
+                  key={g.emoji}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); if (!selectionMode) react(g.emoji) }}
+                  title={`${who} reacted ${g.emoji}`}
+                  aria-label={`${g.emoji} ${g.count}, ${mine ? 'click to remove your reaction' : 'click to react'}`}
+                  className={`flex h-6 items-center gap-1 rounded-full px-1.5 text-[13px] leading-none shadow-sm ring-1 transition hover:scale-105 ${
+                    mine
+                      ? 'bg-indigo-50 ring-indigo-300 dark:bg-indigo-500/20 dark:ring-indigo-500/50'
+                      : 'bg-white ring-slate-200 dark:bg-slate-800 dark:ring-slate-700'
+                  }`}
+                >
+                  <span>{g.emoji}</span>
+                  {g.count > 1 && <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">{g.count}</span>}
+                </button>
+              )
+            })}
           </div>
         )}
+
+        {last && (
+          <p className="mt-1 flex items-center gap-1 px-1 text-[11px] text-slate-400">
+            {formatTime(message.createdAt)}
+            {message.edited && ' · edited'}
+            {itsMe && (message.seen
+              ? <LuCheckCheck className="size-3.5 text-indigo-500" title="Seen" aria-label="Seen" />
+              : <LuCheck className="size-3.5" title="Sent" aria-label="Sent" />)}
+          </p>
+        )}
       </div>
+
+      {!itsMe && actions}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        title="Delete this message?"
+        description="It will be removed for both of you. This can't be undone."
+      />
     </div>
   )
 }

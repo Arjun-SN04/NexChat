@@ -1,64 +1,101 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useSocket } from './SocketProvider'
 import useConversation from '../Zustand/UserConversation'
+import { loadConversations, markSeen } from '../utils/conversations'
 
+// Typing indicators clear themselves if no "stopTyping" arrives in time
+const TYPING_TIMEOUT_MS = 4000
+const typingTimers = {}
+
+// Listens to all real-time chat events for the signed-in user.
+// Mounted once by the chat layout so it works even when no chat is open.
 const useListenMessages = () => {
   const { socket } = useSocket()
-  const { setMessages, selectedConversation, addUnread } = useConversation()
-
-  // Keep a ref so socket handlers always read the LATEST selectedConversation
-  // without needing to re-register listeners every time it changes
-  const selectedConvRef = useRef(selectedConversation)
-  useEffect(() => {
-    selectedConvRef.current = selectedConversation
-  }, [selectedConversation])
 
   useEffect(() => {
     if (!socket) return
+    const store = () => useConversation.getState()
+    const openChatId = () => store().selectedConversation?._id?.toString()
+
+    const stopTyping = (from) => {
+      clearTimeout(typingTimers[from])
+      store().setTyping(from, false)
+    }
 
     const handleNewMessage = (newMessage) => {
-      const senderId    = newMessage.senderId?.toString()
-      const activeChatId = selectedConvRef.current?._id?.toString()
+      const senderId = newMessage.senderId?.toString()
+      stopTyping(senderId)
+      store().upsertPreview(senderId, newMessage)
 
-      if (activeChatId && senderId === activeChatId) {
-        // Message is from the currently open chat — show it immediately
-        setMessages((prev) => [...prev, newMessage])
+      if (senderId === openChatId()) {
+        // From the open chat: show it, and mark it read if I'm looking at the page
+        store().setMessages((prev) => [...prev, newMessage])
+        if (document.visibilityState === 'visible') markSeen(senderId)
       } else {
-        // Message is from someone else — show notification badge
-        addUnread(senderId)
+        store().addUnread(senderId)
       }
     }
 
     const handleMessageDeleted = (messageId) => {
-      setMessages((prev) => prev.filter((m) => m._id !== messageId))
+      store().setMessages((prev) => prev.filter((m) => m._id !== messageId))
+      loadConversations()
     }
 
-    const handleMessageEdited = (updatedMessage) => {
-      setMessages((prev) =>
-        prev.map((m) => (m._id === updatedMessage._id ? updatedMessage : m))
-      )
+    const handleMessagesDeleted = (ids) => {
+      const gone = new Set(ids)
+      store().setMessages((prev) => prev.filter((m) => !gone.has(m._id)))
+      loadConversations()
+    }
+
+    const handleMessageReacted = ({ messageId, reactions }) => {
+      store().setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)))
+    }
+
+    const handleMessageEdited = (updated) => {
+      store().setMessages((prev) => prev.map((m) => (m._id === updated._id ? updated : m)))
+      loadConversations()
     }
 
     const handleConversationDeleted = ({ otherUserId }) => {
-      if (selectedConvRef.current?._id?.toString() === otherUserId?.toString()) {
-        setMessages([])
-      }
+      if (openChatId() === otherUserId?.toString()) store().setMessages([])
+      loadConversations()
     }
 
-    socket.on('newMessage',           handleNewMessage)
-    socket.on('messageDeleted',       handleMessageDeleted)
-    socket.on('messageEdited',        handleMessageEdited)
-    socket.on('conversationDeleted',  handleConversationDeleted)
+    // The other person opened our chat: mark my messages to them as seen
+    const handleMessagesSeen = ({ by }) => {
+      store().setMessages((prev) =>
+        prev.map((m) => (String(m.receiverId) === String(by) && !m.seen ? { ...m, seen: true } : m)))
+    }
+
+    const handleTyping = ({ from }) => {
+      store().setTyping(from, true)
+      clearTimeout(typingTimers[from])
+      typingTimers[from] = setTimeout(() => store().setTyping(from, false), TYPING_TIMEOUT_MS)
+    }
+    const handleStopTyping = ({ from }) => stopTyping(from)
+
+    socket.on('newMessage', handleNewMessage)
+    socket.on('messageDeleted', handleMessageDeleted)
+    socket.on('messageEdited', handleMessageEdited)
+    socket.on('messagesDeleted', handleMessagesDeleted)
+    socket.on('messageReacted', handleMessageReacted)
+    socket.on('conversationDeleted', handleConversationDeleted)
+    socket.on('messagesSeen', handleMessagesSeen)
+    socket.on('typing', handleTyping)
+    socket.on('stopTyping', handleStopTyping)
 
     return () => {
-      socket.off('newMessage',          handleNewMessage)
-      socket.off('messageDeleted',      handleMessageDeleted)
-      socket.off('messageEdited',       handleMessageEdited)
+      socket.off('newMessage', handleNewMessage)
+      socket.off('messageDeleted', handleMessageDeleted)
+      socket.off('messageEdited', handleMessageEdited)
+      socket.off('messagesDeleted', handleMessagesDeleted)
+      socket.off('messageReacted', handleMessageReacted)
       socket.off('conversationDeleted', handleConversationDeleted)
+      socket.off('messagesSeen', handleMessagesSeen)
+      socket.off('typing', handleTyping)
+      socket.off('stopTyping', handleStopTyping)
     }
-    // Only re-register if socket changes — NOT on selectedConversation change
-    // because we use a ref for that
-  }, [socket, setMessages, addUnread])
+  }, [socket])
 }
 
 export default useListenMessages
