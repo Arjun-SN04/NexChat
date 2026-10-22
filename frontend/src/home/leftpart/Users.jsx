@@ -1,15 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { LuSearch, LuSearchX, LuX } from 'react-icons/lu'
+import { LuInbox, LuLayers, LuQrCode, LuSearch, LuSearchX, LuUserPlus, LuUsers, LuX } from 'react-icons/lu'
 import User from './User'
+import AiRow from './AiRow'
+import { CommunityRow, GroupRow } from './GroupRow'
 import useGetAllUsers from '../../context/useGetAllUsers'
 import { useSocket } from '../../context/SocketProvider'
 import useConversation from '../../Zustand/UserConversation'
 import { useAuth } from '../../context/AuthProvider'
+import { selfContact } from '../../utils/conversations'
 
 const TABS = [
   { id: 'all', label: 'All' },
   { id: 'online', label: 'Online' },
   { id: 'unread', label: 'Unread' },
+  { id: 'groups', label: 'Groups' },
 ]
 
 const RowSkeleton = () => (
@@ -25,15 +29,12 @@ const RowSkeleton = () => (
 const Users = () => {
   const [allUser, loading] = useGetAllUsers()
   const { onlineUsers } = useSocket()
-  const { unreadCounts, setContacts, previews, typingUsers } = useConversation()
+  const { unreadCounts, previews, typingUsers, requests, setContactsDialog, groups, communities, setCreateDialog } = useConversation()
   const [AuthUser] = useAuth()
   const myId = String(AuthUser?._id)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState('all')
   const searchRef = useRef(null)
-
-  // Share the contact list with the welcome screen
-  useEffect(() => { setContacts(allUser) }, [allUser, setContacts])
 
   // Press "/" anywhere to jump to search
   useEffect(() => {
@@ -52,21 +53,100 @@ const Users = () => {
   const unreadOf = (u) => unreadCounts[String(u._id)] || 0
   const lastTime = (u) => (previews[String(u._id)] ? new Date(previews[String(u._id)].createdAt).getTime() : 0)
 
+  // "Message yourself" row: shown first in the All tab, and when the search matches me
+  const self = useMemo(() => selfContact(AuthUser), [AuthUser])
+  const q = query.trim().toLowerCase()
+  const showSelf = !!self && tab === 'all' &&
+    (!q || self.fullName.toLowerCase().includes(q) || self.username?.includes(q.replace(/^@/, '')) || 'message yourself'.includes(q))
+
+  // Nexa (the AI assistant) is pinned under "Message yourself" in the All tab
+  const showAi = tab === 'all' && (!q || 'nexa ai assistant'.includes(q))
+
   const counts = {
-    all: allUser.length,
+    all: allUser.length + groups.length + (self ? 1 : 0),
     online: allUser.filter((u) => onlineSet.has(String(u._id))).length,
-    unread: allUser.filter((u) => unreadOf(u) > 0).length,
+    unread: [...allUser, ...groups].filter((u) => unreadOf(u) > 0).length,
+    groups: groups.length,
   }
 
-  // Filter by search + tab, then sort by most recent chat (people you haven't talked to go last, A→Z)
+  // People and groups together. Filter by search + tab, then sort by most recent
+  // chat (chats with no messages go last, A→Z).
   const list = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return allUser
-      .filter((u) => !q || u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-      .filter((u) => tab === 'all' || (tab === 'online' ? onlineSet.has(String(u._id)) : unreadOf(u) > 0))
+    const matches = (c) => !q || c.fullName.toLowerCase().includes(q) || c.username?.includes(q.replace(/^@/, '')) || c.email?.toLowerCase().includes(q)
+    const pool = tab === 'online' ? allUser : [...allUser, ...groups]
+    return pool
+      .filter(matches)
+      .filter((c) => tab === 'all' || tab === 'groups' || (tab === 'online' ? onlineSet.has(String(c._id)) : unreadOf(c) > 0))
       .sort((a, b) => lastTime(b) - lastTime(a) || a.fullName.localeCompare(b.fullName))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allUser, query, tab, onlineSet, unreadCounts, previews])
+  }, [allUser, groups, query, tab, onlineSet, unreadCounts, previews])
+
+  const rowFor = (chat, compact = false) =>
+    chat.isGroup ? (
+      <GroupRow
+        key={chat._id}
+        group={chat}
+        unread={unreadOf(chat)}
+        preview={previews[String(chat._id)]}
+        typing={typingUsers[String(chat._id)]}
+        myId={myId}
+        compact={compact}
+      />
+    ) : (
+      <User
+        key={chat._id}
+        user={chat}
+        online={onlineSet.has(String(chat._id))}
+        unread={unreadOf(chat)}
+        preview={previews[String(chat._id)]}
+        typing={typingUsers[String(chat._id)]}
+        myId={myId}
+      />
+    )
+
+  // Groups tab: each community with the groups I'm in under it, then other groups
+  const groupsTab = () => {
+    const q = query.trim().toLowerCase()
+    const visible = (name) => !q || name.toLowerCase().includes(q)
+    const standalone = groups.filter((g) => !g.community && visible(g.name))
+    const shownCommunities = communities.filter((c) =>
+      visible(c.name) || groups.some((g) => String(g.community?._id) === String(c._id) && visible(g.name)))
+
+    if (!groups.length && !communities.length) {
+      return (
+        <div className="mx-2 mt-2 rounded-2xl border border-dashed border-slate-200 px-5 py-6 text-center dark:border-slate-800">
+          <p className="text-sm font-semibold">Talk to several people at once</p>
+          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Start a group with your contacts, or a community to bring several groups together.</p>
+          <div className="mt-4 flex justify-center gap-2">
+            <button onClick={() => setCreateDialog({ mode: 'group' })} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition hover:bg-indigo-500">
+              <LuUsers className="size-4" /> New group
+            </button>
+            <button onClick={() => setCreateDialog({ mode: 'community' })} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium ring-1 ring-slate-200 transition hover:bg-slate-50 dark:ring-slate-700 dark:hover:bg-slate-800">
+              <LuLayers className="size-4" /> Community
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <>
+        {shownCommunities.map((c) => (
+          <div key={c._id} className="pb-1">
+            <CommunityRow community={c} />
+            {groups
+              .filter((g) => String(g.community?._id) === String(c._id) && visible(g.name))
+              .sort((a, b) => Number(b.announcement) - Number(a.announcement) || lastTime(b) - lastTime(a))
+              .map((g) => rowFor(g, true))}
+          </div>
+        ))}
+        {shownCommunities.length > 0 && standalone.length > 0 && (
+          <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Groups</p>
+        )}
+        {standalone.sort((a, b) => lastTime(b) - lastTime(a)).map((g) => rowFor(g))}
+      </>
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -117,11 +197,29 @@ const Users = () => {
         ))}
       </div>
 
+      {/* Pending requests */}
+      {requests.incoming.length > 0 && (
+        <button
+          onClick={() => setContactsDialog('requests')}
+          className="mx-4 mt-3 flex items-center gap-2.5 rounded-xl bg-indigo-50 px-3 py-2.5 text-left text-[13px] font-medium text-indigo-700 transition hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/15"
+        >
+          <LuInbox className="size-4 shrink-0" />
+          <span className="flex-1">
+            {requests.incoming.length === 1
+              ? `${requests.incoming[0].from.fullName} wants to connect`
+              : `${requests.incoming.length} contact requests`}
+          </span>
+          <span className="text-xs opacity-80">Review</span>
+        </button>
+      )}
+
       {/* List */}
       <div className="mt-3 min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
         {loading && allUser.length === 0 ? (
           Array.from({ length: 6 }, (_, i) => <RowSkeleton key={i} />)
-        ) : list.length === 0 ? (
+        ) : tab === 'groups' ? (
+          groupsTab()
+        ) : list.length === 0 && !showSelf && !showAi ? (
           <div className="px-6 py-12 text-center">
             <LuSearchX className="mx-auto size-6 text-slate-300 dark:text-slate-600" />
             <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -132,17 +230,27 @@ const Users = () => {
             </p>
           </div>
         ) : (
-          list.map((user) => (
-            <User
-              key={user._id}
-              user={user}
-              online={onlineSet.has(String(user._id))}
-              unread={unreadOf(user)}
-              preview={previews[String(user._id)]}
-              typing={!!typingUsers[String(user._id)]}
-              myId={myId}
-            />
-          ))
+          <>
+            {showSelf && rowFor(self)}
+            {showAi && <AiRow />}
+            {list.map((chat) => rowFor(chat))}
+          </>
+        )}
+
+        {/* No contacts yet: show how to add people */}
+        {!loading && allUser.length === 0 && tab === 'all' && !q && (
+          <div className="mx-2 mt-4 rounded-2xl border border-dashed border-slate-200 px-5 py-6 text-center dark:border-slate-800">
+            <p className="text-sm font-semibold">Add your first contact</p>
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Find friends by username, or share your QR code so they can add you.</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <button onClick={() => setContactsDialog('add')} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-medium text-white transition hover:bg-indigo-500">
+                <LuUserPlus className="size-4" /> Add
+              </button>
+              <button onClick={() => setContactsDialog('invite')} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium ring-1 ring-slate-200 transition hover:bg-slate-50 dark:ring-slate-700 dark:hover:bg-slate-800">
+                <LuQrCode className="size-4" /> My QR
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

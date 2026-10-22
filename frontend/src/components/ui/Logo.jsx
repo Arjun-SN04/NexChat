@@ -17,9 +17,12 @@ export const LogoMark = ({ className = 'size-8' }) => {
         d="M10.5 8.5h11a3.5 3.5 0 0 1 3.5 3.5v6a3.5 3.5 0 0 1-3.5 3.5H16l-4.5 3.5v-3.5h-1A3.5 3.5 0 0 1 7 18v-6a3.5 3.5 0 0 1 3.5-3.5z"
         fill="#fff"
       />
-      <circle cx="12.5" cy="15" r="1.4" fill="#4f46e5" />
-      <circle cx="16" cy="15" r="1.4" fill="#4f46e5" />
-      <circle cx="19.5" cy="15" r="1.4" fill="#4f46e5" />
+      {/* Dots do a small "typing" wave on load and while hovered (see .logo-dot in index.css) */}
+      <g className="logo-bubble">
+        <circle className="logo-dot" cx="12.5" cy="15" r="1.4" fill="#4f46e5" />
+        <circle className="logo-dot" cx="16" cy="15" r="1.4" fill="#4f46e5" />
+        <circle className="logo-dot" cx="19.5" cy="15" r="1.4" fill="#4f46e5" />
+      </g>
     </svg>
   )
 }

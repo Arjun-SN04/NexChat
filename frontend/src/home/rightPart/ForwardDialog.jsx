@@ -4,14 +4,17 @@ import axios from 'axios'
 import { AnimatePresence, motion } from 'motion/react'
 import { LuCheck, LuForward, LuSearch, LuX } from 'react-icons/lu'
 import useConversation from '../../Zustand/UserConversation'
-import Avatar from '../Avatar'
-import { loadConversations } from '../../utils/conversations'
+import Avatar, { GroupAvatar } from '../Avatar'
+import { canPost } from '../../utils/groups'
+import { loadConversations, selfContact } from '../../utils/conversations'
+import { useAuth } from '../../context/AuthProvider'
 
 const MAX_RECIPIENTS = 20
 
 // Pick people to forward the chosen messages to. Media isn't uploaded again.
 const ForwardDialog = () => {
-  const { forwardIds, setForwardIds, contacts, selectedConversation, setMessages, clearSelection } = useConversation()
+  const { forwardIds, setForwardIds, contacts, groups, selectedConversation, setMessages, clearSelection } = useConversation()
+  const [AuthUser] = useAuth()
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
   const [sending, setSending] = useState(false)
@@ -22,10 +25,13 @@ const ForwardDialog = () => {
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return contacts
-      .filter((u) => !q || u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-      .sort((a, b) => a.fullName.localeCompare(b.fullName))
-  }, [contacts, query])
+    const self = selfContact(AuthUser)
+    const people = [...contacts].sort((a, b) => a.fullName.localeCompare(b.fullName))
+    // Groups I can post in come after people
+    const postable = groups.filter((g) => canPost(g, AuthUser?._id)).sort((a, b) => a.name.localeCompare(b.name))
+    return [...(self ? [self] : []), ...people, ...postable]
+      .filter((u) => !q || u.fullName.toLowerCase().includes(q) || u.username?.includes(q) || u.email?.toLowerCase().includes(q))
+  }, [contacts, groups, query, AuthUser])
 
   const toggle = (id) =>
     setPicked((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX_RECIPIENTS ? [...prev, id] : prev)
@@ -34,10 +40,15 @@ const ForwardDialog = () => {
     setSending(true)
     setError('')
     try {
-      const res = await axios.post('/api/message/forward', { messageIds: forwardIds, receiverIds: picked }, { withCredentials: true })
+      const groupIds = new Set(groups.map((g) => String(g._id)))
+      const res = await axios.post('/api/message/forward', {
+        messageIds: forwardIds,
+        receiverIds: picked.filter((id) => !groupIds.has(String(id))),
+        groupIds: picked.filter((id) => groupIds.has(String(id))),
+      }, { withCredentials: true })
       // If I forwarded into the chat that's open, show the copies right away
       const openId = String(selectedConversation?._id)
-      const here = res.data.filter((m) => String(m.receiverId) === openId)
+      const here = res.data.filter((m) => String(m.groupId || m.receiverId) === openId)
       if (here.length) setMessages((prev) => [...prev, ...here])
       loadConversations()
       clearSelection()
@@ -103,10 +114,14 @@ const ForwardDialog = () => {
                     onClick={() => toggle(u._id)}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${on ? 'bg-indigo-50 dark:bg-indigo-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
                   >
-                    <Avatar name={u.fullName} src={u.avatar?.url} size="sm" />
+                    {u.isGroup
+                      ? <GroupAvatar name={u.name} announcement={u.announcement} size="sm" />
+                      : <Avatar name={u.fullName} src={u.avatar?.url} size="sm" />}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{u.fullName}</span>
-                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{u.email}</span>
+                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                        {u.isGroup ? `Group · ${u.members?.length || 0} members` : u.username ? `@${u.username}` : u.email}
+                      </span>
                     </span>
                     <span className={`flex size-5 items-center justify-center rounded-full border-2 ${on ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                       {on && <LuCheck className="size-3" />}

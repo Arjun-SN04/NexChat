@@ -22,3 +22,7 @@ services:
         sync: false
       - key: CLOUDINARY_FOLDER
         value: nexchat
+      - key: GROQ_API_KEYS
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b

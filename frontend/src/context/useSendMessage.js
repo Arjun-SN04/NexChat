@@ -1,6 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import useConversation from "../Zustand/UserConversation";
+import { sendUrl } from "../utils/groups";
 
 // Sends a text message, optionally with a reply target and/or a file.
 // Returns null on success, or an error message.
@@ -21,12 +22,20 @@ const useSendMessage = () => {
 
     setLoading(true);
     try {
-      const res = await axios.post(`/api/message/send/${selectedConversation._id}`, body, {
+      const res = await axios.post(sendUrl(selectedConversation), body, {
         withCredentials: true,
         onUploadProgress: (e) => onProgress?.(e.total ? e.loaded / e.total : 0),
       });
       setMessages((prev) => [...prev, res.data]);
       upsertPreview(selectedConversation._id, res.data);
+      if (/(^|[^\w@])@nexa\b/i.test(messageText)) {
+        const chatId = selectedConversation._id;
+        useConversation.getState().setNexaThinking(chatId, true);
+        setTimeout(() => {
+          const started = useConversation.getState().nexaThinking[String(chatId)];
+          if (started && Date.now() - started >= 44_000) useConversation.getState().setNexaThinking(chatId, false);
+        }, 45_000);
+      }
       return null;
     } catch (error) {
       console.log("sendMessage error:", error);

@@ -1,66 +1,66 @@
 import { useEffect, useState } from 'react'
-import Cookies from 'js-cookie'
 import axios from 'axios'
 import { useSocket } from './SocketProvider'
 import useConversation from '../Zustand/UserConversation'
+import { loadRequests } from '../utils/contacts'
 
+// Loads my contacts and contact requests, and keeps them in sync in real time.
 const useGetAllUsers = () => {
-  const [allUser, setAllUser] = useState([])
+  const contacts = useConversation((s) => s.contacts)
   const [loading, setLoading] = useState(false)
   const { socket } = useSocket()
 
-  const fetchUsers = async () => {
-    setLoading(true)
-    try {
-      const token = Cookies.get('jwt')
-      const response = await axios.get('/api/user/allusers', {
-        withCredentials: true,
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      setAllUser(response.data.allUsers)
-    } catch (error) {
-      console.log(error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Initial fetch
   useEffect(() => {
-    fetchUsers()
+    const fetchContacts = async () => {
+      setLoading(true)
+      try {
+        const res = await axios.get('/api/contacts', { withCredentials: true })
+        useConversation.getState().setContacts(res.data.contacts)
+      } catch (error) {
+        console.log(error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchContacts()
+    loadRequests()
   }, [])
 
-  // When a brand-new user signs up, the backend emits "newUserJoined"
-  // → append them to the list instantly without a full re-fetch
   useEffect(() => {
     if (!socket) return
+    const store = () => useConversation.getState()
 
-    const handleNewUser = (newUser) => {
-      setAllUser((prev) => {
-        // avoid duplicates
-        if (prev.some((u) => u._id === newUser._id)) return prev
-        return [...prev, newUser]
-      })
+    // Someone accepted my request or used my invite link
+    const handleContactAdded = (user) => {
+      store().addContact(user)
+      loadRequests()
     }
+    const handleContactRemoved = ({ userId }) => store().removeContact(userId)
 
-    // Someone changed their name or photo: update the list and the open chat
+    // A contact changed their name, username or photo
     const handleUserUpdated = (updated) => {
-      setAllUser((prev) => prev.map((u) => (u._id === updated._id ? { ...u, ...updated } : u)))
-      const { selectedConversation } = useConversation.getState()
-      if (selectedConversation?._id === updated._id) {
+      store().setContacts(store().contacts.map((u) => (u._id === updated._id ? { ...u, ...updated } : u)))
+      const { selectedConversation } = store()
+      if (selectedConversation?._id === updated._id && !selectedConversation.isSelf) {
         useConversation.setState({ selectedConversation: { ...selectedConversation, ...updated } })
       }
     }
 
-    socket.on('newUserJoined', handleNewUser)
+    socket.on('contactAdded', handleContactAdded)
+    socket.on('contactRemoved', handleContactRemoved)
+    socket.on('contactRequest', loadRequests)
+    socket.on('contactRequestRemoved', loadRequests)
     socket.on('userUpdated', handleUserUpdated)
     return () => {
-      socket.off('newUserJoined', handleNewUser)
+      socket.off('contactAdded', handleContactAdded)
+      socket.off('contactRemoved', handleContactRemoved)
+      socket.off('contactRequest', loadRequests)
+      socket.off('contactRequestRemoved', loadRequests)
       socket.off('userUpdated', handleUserUpdated)
     }
   }, [socket])
 
-  return [allUser, loading]
+  return [contacts, loading]
 }
 
 export default useGetAllUsers

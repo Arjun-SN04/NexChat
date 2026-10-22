@@ -1,11 +1,14 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 
 const ThemeContext = createContext()
 
 export const useTheme = () => useContext(ThemeContext)
 
 const ThemeProvider = ({ children }) => {
-  const [dark, setDark] = useState(() => localStorage.getItem('chatTheme') === 'dark')
+  // Dark by default; light only if the visitor chose it
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('chatTheme') !== 'light' } catch { return true }
+  })
   const toggle = () => setDark(d => {
     localStorage.setItem('chatTheme', !d ? 'dark' : 'light')
     return !d

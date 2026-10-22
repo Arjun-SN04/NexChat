@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useSocket } from './SocketProvider'
 import useConversation from '../Zustand/UserConversation'
 import { loadConversations, markSeen } from '../utils/conversations'
+import { loadCommunities } from '../utils/groups'
+import { loadCalls } from '../utils/calls'
+import { useAuth } from './AuthProvider'
 
 // Typing indicators clear themselves if no "stopTyping" arrives in time
 const TYPING_TIMEOUT_MS = 4000
@@ -11,6 +14,8 @@ const typingTimers = {}
 // Mounted once by the chat layout so it works even when no chat is open.
 const useListenMessages = () => {
   const { socket } = useSocket()
+  const [AuthUser] = useAuth()
+  const myId = String(AuthUser?._id)
 
   useEffect(() => {
     if (!socket) return
@@ -23,16 +28,26 @@ const useListenMessages = () => {
     }
 
     const handleNewMessage = (newMessage) => {
+      // Group messages belong to the group; direct messages to the sender
+      const groupId = newMessage.groupId?.toString()
       const senderId = newMessage.senderId?.toString()
-      stopTyping(senderId)
-      store().upsertPreview(senderId, newMessage)
+      // Call entries are also sent to the caller: those belong to the person they called
+      const mine = senderId === myId
+      const botPeers = newMessage.botChat?.map(String)
+      const chatId = groupId
+        || (botPeers ? botPeers.find((p) => p !== myId) || myId : null)
+        || (mine ? newMessage.receiverId?.toString() : senderId)
+      if (!mine) stopTyping(chatId)
+      if (store().nexaId && senderId === String(store().nexaId)) store().setNexaThinking(chatId, false)
+      store().upsertPreview(chatId, newMessage)
 
-      if (senderId === openChatId()) {
+      if (chatId === openChatId()) {
         // From the open chat: show it, and mark it read if I'm looking at the page
-        store().setMessages((prev) => [...prev, newMessage])
-        if (document.visibilityState === 'visible') markSeen(senderId)
-      } else {
-        store().addUnread(senderId)
+        store().setMessages((prev) => (prev.some((m) => m._id === newMessage._id) ? prev : [...prev, newMessage]))
+        if (document.visibilityState === 'visible') markSeen(chatId, !!groupId)
+      } else if (!mine && (!newMessage.call || newMessage.call.status === 'missed')) {
+        // Only missed calls count as unread, like on the server
+        store().addUnread(chatId)
       }
     }
 
@@ -67,13 +82,29 @@ const useListenMessages = () => {
         prev.map((m) => (String(m.receiverId) === String(by) && !m.seen ? { ...m, seen: true } : m)))
     }
 
-    const handleTyping = ({ from }) => {
-      store().setTyping(from, true)
+    // In groups, `from` is the group and `name` is who's typing
+    const handleTyping = ({ from, name }) => {
+      store().setTyping(from, name || true)
       clearTimeout(typingTimers[from])
       typingTimers[from] = setTimeout(() => store().setTyping(from, false), TYPING_TIMEOUT_MS)
     }
     const handleStopTyping = ({ from }) => stopTyping(from)
 
+    // Groups and communities
+    const handleGroupAdded = (group) => store().upsertGroup(group)
+    const handleGroupUpdated = (group) => store().upsertGroup(group)
+    const handleGroupRemoved = ({ groupId }) => { store().removeGroup(groupId); loadCommunities() }
+    const handleCommunityChanged = () => loadCommunities()
+    const handleCallLogged = () => loadCalls()
+    const handleScheduled = () => store().bumpScheduled()
+
+    socket.on('groupAdded', handleGroupAdded)
+    socket.on('groupUpdated', handleGroupUpdated)
+    socket.on('groupRemoved', handleGroupRemoved)
+    socket.on('communityUpdated', handleCommunityChanged)
+    socket.on('communityRemoved', handleCommunityChanged)
+    socket.on('callLogged', handleCallLogged)
+    socket.on('scheduledUpdated', handleScheduled)
     socket.on('newMessage', handleNewMessage)
     socket.on('messageDeleted', handleMessageDeleted)
     socket.on('messageEdited', handleMessageEdited)
@@ -85,6 +116,13 @@ const useListenMessages = () => {
     socket.on('stopTyping', handleStopTyping)
 
     return () => {
+      socket.off('groupAdded', handleGroupAdded)
+      socket.off('groupUpdated', handleGroupUpdated)
+      socket.off('groupRemoved', handleGroupRemoved)
+      socket.off('communityUpdated', handleCommunityChanged)
+      socket.off('communityRemoved', handleCommunityChanged)
+      socket.off('callLogged', handleCallLogged)
+      socket.off('scheduledUpdated', handleScheduled)
       socket.off('newMessage', handleNewMessage)
       socket.off('messageDeleted', handleMessageDeleted)
       socket.off('messageEdited', handleMessageEdited)
@@ -95,7 +133,7 @@ const useListenMessages = () => {
       socket.off('typing', handleTyping)
       socket.off('stopTyping', handleStopTyping)
     }
-  }, [socket])
+  }, [socket, myId])
 }
 
 export default useListenMessages

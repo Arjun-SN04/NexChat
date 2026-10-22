@@ -2,12 +2,14 @@ import React, { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import axios from 'axios'
 import { AnimatePresence, motion } from 'motion/react'
-import { LuArrowLeft, LuCamera, LuKeyRound, LuLoaderCircle, LuLock, LuMail, LuTrash2, LuUser } from 'react-icons/lu'
+import { LuArrowLeft, LuAtSign, LuCamera, LuKeyRound, LuLoaderCircle, LuLock, LuMail, LuTrash2, LuUser } from 'react-icons/lu'
 import { useAuth } from '../context/AuthProvider'
 import { Alert, Button, Card, Input, Logo } from './ui'
 import usePageTitle from '../hooks/usePageTitle'
 import useThemeClass from '../hooks/useThemeClass'
 import { compressAvatar } from '../utils/attachments'
+import Logout from '../home/leftpart/Logout'
+import { checkUsernameFree, normalizeUsername, USERNAME_RULES } from '../utils/contacts'
 
 const TABS = [
   { id: 'profile', label: 'Profile', Icon: LuUser },
@@ -35,7 +37,7 @@ const Profile = () => {
   const colorIdx = (AuthUser?.fullName?.charCodeAt(0) || 0) % AVATAR_COLORS.length
 
   const { register: regProfile, handleSubmit: handleProfile, formState: { errors: profileErrors } } = useForm({
-    defaultValues: { fullName: AuthUser?.fullName || '' }
+    defaultValues: { fullName: AuthUser?.fullName || '', username: AuthUser?.username || '' }
   })
   const { register: regPass, handleSubmit: handlePass, formState: { errors: passErrors }, watch, reset: resetPass } = useForm()
   const newPass = watch('newPassword', '')
@@ -89,11 +91,11 @@ const Profile = () => {
   const onUpdateProfile = async (data) => {
     setIsLoading(true)
     try {
-      const res = await axios.put('/api/user/update', { fullName: data.fullName }, { withCredentials: true })
+      const res = await axios.put('/api/user/update', { fullName: data.fullName, username: data.username }, { withCredentials: true })
       const updated = res.data.user
       localStorage.setItem('chatUser', JSON.stringify(updated))
       setAuthUser(updated)
-      showMsg('success', 'Your name has been updated.')
+      showMsg('success', 'Your profile has been updated.')
     } catch (err) {
       showMsg('error', err.response?.data?.error || 'Update failed')
     } finally { setIsLoading(false) }
@@ -118,7 +120,10 @@ const Profile = () => {
       <nav className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-5 sm:px-8">
           <Logo to="/" />
-          <Button to="/" variant="ghost" size="sm" leftIcon={LuArrowLeft}>Back to chats</Button>
+          <div className="flex items-center gap-1">
+            <Button to="/" variant="ghost" size="sm" leftIcon={LuArrowLeft}>Back to chats</Button>
+            <Logout />
+          </div>
         </div>
       </nav>
 
@@ -150,7 +155,10 @@ const Profile = () => {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-semibold text-slate-900 dark:text-white">{AuthUser?.fullName}</p>
-            <p className="truncate text-sm text-slate-500 dark:text-slate-400">{AuthUser?.email}</p>
+            <p className="truncate text-sm text-slate-500 dark:text-slate-400">
+              {AuthUser?.username && <span className="font-medium text-slate-700 dark:text-slate-300">@{AuthUser.username} · </span>}
+              {AuthUser?.email}
+            </p>
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20">
               <span className="size-1.5 rounded-full bg-emerald-500" />
               Active
@@ -210,6 +218,19 @@ const Profile = () => {
                       placeholder="Your full name"
                       error={profileErrors.fullName?.message}
                       {...regProfile('fullName', { required: 'Name is required' })}
+                    />
+                    <Input
+                      label="Username"
+                      icon={LuAtSign}
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      hint={`People can find you by @username. ${USERNAME_RULES}.`}
+                      error={profileErrors.username?.message}
+                      {...regProfile('username', {
+                        required: 'Username is required',
+                        setValueAs: normalizeUsername,
+                        validate: (v) => checkUsernameFree(v, AuthUser?.username),
+                      })}
                     />
                     <Input
                       label="Email address"

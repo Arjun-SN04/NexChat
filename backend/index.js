@@ -6,6 +6,12 @@ import userRoutes from "./routes/user.routes.js"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import messageRoutes from "./routes/message.route.js"
+import contactRoutes from "./routes/contact.route.js"
+import groupRoutes from "./routes/group.route.js"
+import communityRoutes from "./routes/community.route.js"
+import callRoutes from "./routes/call.route.js"
+import aiRoutes from "./routes/ai.route.js"
+import { startScheduler } from "./utils/scheduler.js"
 import { app, server } from "./socket/socket.js"
 
 dotenv.config()
@@ -16,7 +22,7 @@ const port = process.env.PORT || 3000
 const mongo_uri = process.env.MONGODB_URI
 
 mongoose.connect(mongo_uri)
-  .then(() => console.log("Connected to MongoDB"))
+  .then(() => { console.log("Connected to MongoDB"); startScheduler() })
   .catch((err) => console.log("MongoDB connection error:", err))
 
 app.use(express.json())
@@ -41,6 +47,11 @@ app.use(
 
 app.use("/user", userRoutes)
 app.use("/message", messageRoutes)
+app.use("/contacts", contactRoutes)
+app.use("/groups", groupRoutes)
+app.use("/communities", communityRoutes)
+app.use("/calls", callRoutes)
+app.use("/ai", aiRoutes)
 
 app.get("/", (req, res) => {
   res.send("NexChat API is running")

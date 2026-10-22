@@ -1,14 +1,31 @@
-import React from 'react'
+import React, { useState } from 'react'
+import axios from 'axios'
 import { motion } from 'motion/react'
-import { LuCalendar, LuMail, LuTrash2, LuX } from 'react-icons/lu'
+import { LuAtSign, LuCalendar, LuMail, LuTrash2, LuUserMinus, LuX } from 'react-icons/lu'
 import { useSocket } from '../../context/SocketProvider'
+import useConversation from '../../Zustand/UserConversation'
 import Avatar from '../Avatar'
+import ConfirmDialog from '../ConfirmDialog'
 
 // Side panel with details about the person you're chatting with.
 // Inline column on wide screens, slide-over drawer on smaller ones.
 const ContactInfo = ({ user, onClose, onClear }) => {
   const { onlineUsers } = useSocket()
-  const isOnline = onlineUsers.map(String).includes(String(user._id))
+  const isOnline = !user.isSelf && onlineUsers.map(String).includes(String(user._id))
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const firstName = user.fullName?.split(' ')[0]
+
+  // Removing a contact keeps the chat history, but neither of you can message the other
+  const removeContact = async () => {
+    try {
+      await axios.delete(`/api/contacts/${user._id}`, { withCredentials: true })
+      setConfirmRemove(false)
+      onClose()
+      useConversation.getState().removeContact(user._id)
+    } catch (err) {
+      console.log('removeContact error:', err)
+    }
+  }
   const joined = user.createdAt
     ? new Date(user.createdAt).toLocaleDateString([], { month: 'long', year: 'numeric' })
     : null
@@ -45,11 +62,20 @@ const ContactInfo = ({ user, onClose, onClear }) => {
             <Avatar name={user.fullName} src={user.avatar?.url} size="lg" online={isOnline} />
             <p className="mt-4 text-lg font-semibold">{user.fullName}</p>
             <p className={`mt-0.5 text-sm ${isOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-              {isOnline ? 'Online now' : 'Offline'}
+              {user.isSelf ? 'Notes, links and files for yourself' : isOnline ? 'Online now' : 'Offline'}
             </p>
           </div>
 
           <dl className="mt-8 space-y-1 rounded-2xl bg-slate-50 p-2 dark:bg-slate-900">
+            {user.username && (
+              <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+                <LuAtSign className="size-4 shrink-0 text-slate-400" />
+                <div className="min-w-0">
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Username</dt>
+                  <dd className="truncate text-sm font-medium">@{user.username}</dd>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
               <LuMail className="size-4 shrink-0 text-slate-400" />
               <div className="min-w-0">
@@ -74,8 +100,26 @@ const ContactInfo = ({ user, onClose, onClear }) => {
           >
             <LuTrash2 className="size-4" /> Clear chat
           </button>
+          {!user.isSelf && (
+            <button
+              onClick={() => setConfirmRemove(true)}
+              className="flex w-full items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+            >
+              <LuUserMinus className="size-4" /> Remove contact
+            </button>
+          )}
         </div>
       </motion.aside>
+      <ConfirmDialog
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={removeContact}
+        icon={LuUserMinus}
+        title={`Remove ${firstName}?`}
+        description={`You won't be able to message each other until one of you adds the other again. Your chat history stays.`}
+        confirmLabel="Remove"
+        busyLabel="Removing…"
+      />
     </>
   )
 }

@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import User from "./models/user.model.js";
 import { Message } from "./models/message.model.js";
 import { Conversation } from "./models/conversation.model.js";
+import { ContactRequest } from "./models/contactRequest.model.js";
+import { newInviteToken } from "./utils/username.js";
 
 dotenv.config();
 
@@ -133,6 +135,7 @@ async function seed() {
     await User.deleteMany({})
     await Message.deleteMany({})
     await Conversation.deleteMany({})
+    await ContactRequest.deleteMany({})
     console.log("🗑️  Cleared all existing data")
 
     // 2. Create users with hashed passwords
@@ -140,6 +143,8 @@ async function seed() {
       USERS.map(async (u) => ({
         fullName: u.fullName,
         email: u.email,
+        username: u.email.split("@")[0],
+        inviteToken: newInviteToken(),
         password: await bcrypt.hash(u.password, 10),
       }))
     )
@@ -165,6 +170,10 @@ async function seed() {
       )
 
       // Create conversation linking both users and messages
+      // People who chat are contacts
+      await User.updateOne({ _id: userA._id }, { $addToSet: { contacts: userB._id } })
+      await User.updateOne({ _id: userB._id }, { $addToSet: { contacts: userA._id } })
+
       await Conversation.create({
         members:  [userA._id, userB._id],
         messages: createdMessages.map((m) => m._id),

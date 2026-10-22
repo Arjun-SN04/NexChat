@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import axios from "axios";
-import { LuArrowRight, LuLock, LuMail, LuPencil, LuShieldCheck, LuUser, LuZap } from "react-icons/lu";
+import { LuArrowRight, LuAtSign, LuLock, LuMail, LuPencil, LuShieldCheck, LuUser, LuZap } from "react-icons/lu";
 import { useAuth } from "../context/AuthProvider";
 import AuthLayout, { FloatCard } from "./AuthLayout";
 import { Alert, Button, Input } from "./ui";
 import usePageTitle from "../hooks/usePageTitle";
+import { checkUsernameFree, normalizeUsername, USERNAME_RULES } from "../utils/contacts";
 
 const Floating = () => (
   <>
@@ -59,7 +60,7 @@ const Signup = () => {
     setServerError(""); setIsLoading(true);
     try {
       const res = await axios.post("/api/user/signup", {
-        fullName: data.fullname, email: data.email,
+        fullName: data.fullname, email: data.email, username: normalizeUsername(data.username),
         password: data.password, confirmPassword: data.confirmPassword,
       }, { withCredentials: true });
       const user = res.data.newUser;
@@ -94,6 +95,21 @@ const Signup = () => {
           autoComplete="name"
           error={errors.fullname?.message}
           {...register("fullname", { required: "Full name is required" })}
+        />
+        <Input
+          label="Username"
+          icon={LuAtSign}
+          placeholder="janecooper"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          hint={`How friends find you. ${USERNAME_RULES}.`}
+          error={errors.username?.message}
+          {...register("username", {
+            required: "Pick a username",
+            setValueAs: normalizeUsername,
+            validate: (v) => checkUsernameFree(v),
+          })}
         />
         <Input
           label="Email"

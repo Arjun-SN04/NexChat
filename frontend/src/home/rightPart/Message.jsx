@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
-import { LuCheck, LuCheckCheck, LuCopy, LuForward, LuPencil, LuReply, LuSmilePlus, LuSquareCheck, LuTrash2 } from 'react-icons/lu'
+import { LuAlarmClock, LuCheck, LuCheckCheck, LuEllipsis, LuLanguages, LuCopy, LuForward, LuPencil, LuReply, LuSmilePlus, LuSquareCheck, LuTrash2 } from 'react-icons/lu'
 import useConversation from '../../Zustand/UserConversation'
 import Avatar from '../Avatar'
 import Attachment from './Attachment'
@@ -8,10 +8,39 @@ import ConfirmDialog from '../ConfirmDialog'
 import { attachmentLabel } from '../../utils/attachments'
 import { canEdit, groupReactions, jumpToMessage, toggleReaction } from '../../utils/messages'
 import ReactionPicker from './ReactionPicker'
+import { GoToMessage, RemindMenu, Transcript, Translation, useTranslation } from './NexaExtras'
+import { AiAvatar } from '../Avatar'
+import ReactMarkdown from 'react-markdown'
+
+// Nexa writes short Markdown (bullets, bold); people's messages stay plain text
+const botMd = {
+  p: (props) => <p className="my-1 first:mt-0 last:mb-0" {...props} />,
+  ul: (props) => <ul className="my-1 list-disc space-y-0.5 pl-4 first:mt-0 last:mb-0" {...props} />,
+  ol: (props) => <ol className="my-1 list-decimal space-y-0.5 pl-4 first:mt-0 last:mb-0" {...props} />,
+  strong: (props) => <strong className="font-semibold" {...props} />,
+  blockquote: (props) => <blockquote className="my-1 border-l-2 border-violet-300 pl-2 dark:border-violet-500/50" {...props} />,
+  a: (props) => <a className="underline underline-offset-2" target="_blank" rel="noreferrer" {...props} />,
+}
 import { loadConversations } from '../../utils/conversations'
 
 const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const LONG_PRESS_MS = 450
+// Desktop (mouse) shows the actions on hover; touch screens show them on tap
+const canHover = () => window.matchMedia('(hover: hover)').matches
+
+const MenuItem = ({ onClick, icon: Icon, label, danger = false }) => (
+  <button
+    role="menuitem"
+    onClick={onClick}
+    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
+      danger
+        ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
+        : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
+    }`}
+  >
+    <Icon className="size-4 shrink-0 opacity-70" /> {label}
+  </button>
+)
 
 const ActionButton = ({ onClick, label, danger = false, children }) => (
   <button
@@ -31,7 +60,8 @@ const ActionButton = ({ onClick, label, danger = false, children }) => (
 // A single chat bubble.
 // `first`/`last`: position inside a group of consecutive messages from one person.
 // `original`: the message this one replies to (null if it was deleted, undefined if not a reply).
-const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId, original, now }) => {
+// In groups, `senderLabel` shows who wrote it and `nameOf(id)` names people in reply quotes
+const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId, original, now, senderLabel = null, nameOf = null, isBot = false }) => {
   const {
     setMessages, editingMessage, setEditingMessage, replyingTo, setReplyingTo, highlightedId, setHighlightedId,
     selectionMode, selectedIds, startSelection, toggleSelected, setForwardIds,
@@ -43,6 +73,25 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerPlacement, setPickerPlacement] = useState('top')
   const pressTimer = useRef(null)
+  const [remindOpen, setRemindOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const rowRef = useRef(null)
+  const moreRef = useRef(null)
+
+  // Close the More menu, or a tapped-open actions bar, when tapping elsewhere
+  useEffect(() => {
+    if (!moreOpen && !showActions) return
+    const onDown = (e) => {
+      if (moreOpen && !moreRef.current?.contains(e.target) && !e.target.closest?.('[data-more-toggle]')) setMoreOpen(false)
+      if (showActions && !rowRef.current?.contains(e.target)) setShowActions(false)
+    }
+    const onKey = (e) => e.key === 'Escape' && (setMoreOpen(false), setShowActions(false))
+    document.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [moreOpen, showActions])
+  const { translation, translate, hide: hideTranslation } = useTranslation(message)
+  const canTranslate = !!(message.message?.trim() || message.transcript)
 
   const id = message._id
   const isEditing = editingMessage?._id === id
@@ -100,7 +149,7 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
 
   const onBubbleClick = () => {
     if (selectionMode) toggleSelected(id)
-    else setShowActions((v) => !v)
+    else if (!canHover()) setShowActions((v) => !v)
   }
 
   // Photos and videos get a tighter frame around them
@@ -115,57 +164,62 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
     ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-900'
     : ''
 
-  const close = (fn) => () => { fn(); setShowActions(false) }
+  const close = (fn) => () => { fn(); setShowActions(false); setMoreOpen(false) }
 
+  // Open menus below the message if there isn't room above it
+  const placeFrom = (el) => {
+    const top = el.getBoundingClientRect().top
+    const areaTop = el.closest('.chat-bg')?.getBoundingClientRect().top ?? 0
+    setPickerPlacement(top - areaTop < 260 ? 'bottom' : 'top')
+  }
+
+  // Hover bar: React, Reply and a More menu for everything else
   const actions = !selectionMode && (
     <div
-      className={`mb-5 flex shrink-0 items-center rounded-lg bg-white p-0.5 shadow-sm ring-1 ring-slate-200 transition-opacity dark:bg-slate-800 dark:ring-slate-700 ${
-        showActions || pickerOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
-      } relative group-hover:pointer-events-auto group-hover:opacity-100`}
+      className={`relative mb-5 flex shrink-0 items-center rounded-lg bg-white p-0.5 shadow-sm ring-1 ring-slate-200 transition-opacity dark:bg-slate-800 dark:ring-slate-700 ${
+        showActions || pickerOpen || remindOpen || moreOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+      } group-hover:pointer-events-auto group-hover:opacity-100`}
     >
       {pickerOpen && (
-        <ReactionPicker
-          current={myReaction}
-          onPick={react}
-          onClose={() => setPickerOpen(false)}
-          align={itsMe ? 'right' : 'left'}
-          placement={pickerPlacement}
-        />
+        <ReactionPicker current={myReaction} onPick={react} onClose={() => setPickerOpen(false)} align={itsMe ? 'right' : 'left'} placement={pickerPlacement} />
       )}
-      <ActionButton
-        label="React"
-        onClick={(e) => {
-          // Open below the message if there isn't room above it
-          const top = e.currentTarget.getBoundingClientRect().top
-          const areaTop = e.currentTarget.closest('.chat-bg')?.getBoundingClientRect().top ?? 0
-          setPickerPlacement(top - areaTop < 220 ? 'bottom' : 'top')
-          setPickerOpen((v) => !v)
-        }}
-      >
+      {remindOpen && (
+        <RemindMenu message={message} align={itsMe ? 'right' : 'left'} placement={pickerPlacement} onClose={() => { setRemindOpen(false); setShowActions(false) }} />
+      )}
+      {moreOpen && (
+        <div
+          ref={moreRef}
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute z-30 w-48 rounded-xl bg-white p-1 shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 ${
+            pickerPlacement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
+          } ${itsMe ? 'right-0' : 'left-0'}`}
+        >
+          <MenuItem icon={copied ? LuCheck : LuCopy} label={copied ? 'Copied' : 'Copy'} onClick={() => { copyText(); setTimeout(() => setMoreOpen(false), 400) }} />
+          <MenuItem icon={LuForward} label="Forward" onClick={close(() => setForwardIds([id]))} />
+          {canTranslate && <MenuItem icon={LuLanguages} label={translation?.text ? 'Hide translation' : 'Translate'} onClick={close(translate)} />}
+          <MenuItem icon={LuAlarmClock} label="Remind me" onClick={() => { setMoreOpen(false); setRemindOpen(true) }} />
+          {editable && <MenuItem icon={LuPencil} label="Edit" onClick={close(() => setEditingMessage(message))} />}
+          <MenuItem icon={LuSquareCheck} label="Select" onClick={close(() => startSelection(id))} />
+          {itsMe && (
+            <>
+              <div className="my-1 h-px bg-slate-100 dark:bg-slate-800" />
+              <MenuItem icon={LuTrash2} label="Delete" danger onClick={close(() => setConfirmDelete(true))} />
+            </>
+          )}
+        </div>
+      )}
+      <ActionButton label="React" onClick={(e) => { placeFrom(e.currentTarget); setMoreOpen(false); setPickerOpen((v) => !v) }}>
         <LuSmilePlus className="size-3.5" />
       </ActionButton>
       <ActionButton label="Reply" onClick={close(() => setReplyingTo(message))}>
         <LuReply className="size-3.5" />
       </ActionButton>
-      <ActionButton label="Forward" onClick={close(() => setForwardIds([id]))}>
-        <LuForward className="size-3.5" />
-      </ActionButton>
-      <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={copyText}>
-        {copied ? <LuCheck className="size-3.5 text-emerald-600" /> : <LuCopy className="size-3.5" />}
-      </ActionButton>
-      {editable && (
-        <ActionButton label="Edit" onClick={close(() => setEditingMessage(message))}>
-          <LuPencil className="size-3.5" />
+      <span data-more-toggle>
+        <ActionButton label="More" onClick={(e) => { placeFrom(e.currentTarget); setPickerOpen(false); setMoreOpen((v) => !v) }}>
+          <LuEllipsis className="size-3.5" />
         </ActionButton>
-      )}
-      <ActionButton label="Select" onClick={close(() => startSelection(id))}>
-        <LuSquareCheck className="size-3.5" />
-      </ActionButton>
-      {itsMe && (
-        <ActionButton label="Delete" danger onClick={close(() => setConfirmDelete(true))}>
-          <LuTrash2 className="size-3.5" />
-        </ActionButton>
-      )}
+      </span>
     </div>
   )
 
@@ -181,7 +235,7 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
     >
       {original ? (
         <>
-          <span className="block font-semibold">{String(original.senderId) === myId ? 'You' : contactFirst}</span>
+          <span className="block font-semibold">{String(original.senderId) === myId ? 'You' : nameOf ? nameOf(original.senderId) : contactFirst}</span>
           <span className="line-clamp-2">{original.message || attachmentLabel(original.attachment)}</span>
         </>
       ) : (
@@ -192,6 +246,7 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
 
   return (
     <div
+      ref={rowRef}
       id={`msg-${id}`}
       onClick={selectionMode ? () => toggleSelected(id) : undefined}
       onTouchStart={onTouchStart}
@@ -215,10 +270,11 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
         </span>
       )}
 
-      {!itsMe && (last ? <Avatar name={contactName} src={contactAvatar} size="xs" /> : <div className="w-7 shrink-0" />)}
+      {!itsMe && (last ? (isBot ? <AiAvatar size="xs" /> : <Avatar name={contactName} src={contactAvatar} size="xs" />) : <div className="w-7 shrink-0" />)}
       {itsMe && actions}
 
       <div className={`flex max-w-[80%] flex-col sm:max-w-[70%] lg:max-w-[min(60%,640px)] ${itsMe ? 'items-end' : 'items-start'}`}>
+        {senderLabel && <p className="mb-0.5 ml-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">{senderLabel}</p>}
         <div
           onClick={selectionMode ? undefined : onBubbleClick}
           onDoubleClick={selectionMode ? undefined : (e) => { e.preventDefault(); window.getSelection()?.removeAllRanges(); react('❤️') }}
@@ -236,11 +292,16 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
           )}
           {quote}
           {message.attachment && <Attachment attachment={message.attachment} itsMe={itsMe} />}
-          {message.message && (
+          <Transcript message={message} itsMe={itsMe} />
+          {message.message && (isBot ? (
+            <div className="wrap-break-word"><ReactMarkdown components={botMd}>{message.message}</ReactMarkdown></div>
+          ) : (
             <span className={`block whitespace-pre-wrap wrap-break-word ${media ? 'px-2 pb-1 pt-1.5' : message.attachment ? 'pt-2' : ''}`}>
               {message.message}
             </span>
-          )}
+          ))}
+          <Translation translation={translation} itsMe={itsMe} onHide={hideTranslation} />
+          <GoToMessage message={message} itsMe={itsMe} />
         </div>
 
         {reactionGroups.length > 0 && (
@@ -273,7 +334,7 @@ const Message = ({ message, itsMe, first, last, contactName, contactAvatar, myId
           <p className="mt-1 flex items-center gap-1 px-1 text-[11px] text-slate-400">
             {formatTime(message.createdAt)}
             {message.edited && ' · edited'}
-            {itsMe && (message.seen
+            {itsMe && String(message.receiverId) !== String(myId) && (message.seen
               ? <LuCheckCheck className="size-3.5 text-indigo-500" title="Seen" aria-label="Seen" />
               : <LuCheck className="size-3.5" title="Sent" aria-label="Sent" />)}
           </p>

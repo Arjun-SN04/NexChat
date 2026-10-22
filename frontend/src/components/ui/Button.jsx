@@ -8,7 +8,7 @@ const VARIANTS = {
     'bg-white text-slate-700 border border-slate-200 shadow-xs hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-slate-400 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:border-slate-600',
   ghost: 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus-visible:ring-slate-400 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800',
   white: 'bg-white text-slate-900 shadow-sm hover:bg-slate-100 focus-visible:ring-white',
-  dark: 'bg-slate-900 text-white shadow-sm hover:bg-slate-800 focus-visible:ring-slate-700',
+  dark: 'bg-slate-900 text-white shadow-sm hover:bg-slate-800 focus-visible:ring-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200',
 }
 
 const SIZES = {

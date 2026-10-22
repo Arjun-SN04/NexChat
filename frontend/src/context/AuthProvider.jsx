@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
+import axios from 'axios'
 
 export const AuthContext = createContext()
 
@@ -20,6 +21,35 @@ const readStoredUser = () => {
 
 const AuthProvider = ({ children }) => {
   const [AuthUser, setAuthUser] = useState(readStoredUser)
+
+  // If the login cookie is missing or expired, the API answers 401.
+  // Drop the saved user so the app goes back to the login screen.
+  useEffect(() => {
+    const id = axios.interceptors.response.use(
+      (res) => res,
+      (error) => {
+        const url = error.config?.url || ''
+        const isAuthCall = /\/user\/(login|signup)/.test(url)
+        if (error.response?.status === 401 && !isAuthCall) {
+          localStorage.removeItem('chatUser')
+          setAuthUser(null)
+        }
+        return Promise.reject(error)
+      }
+    )
+    return () => axios.interceptors.response.eject(id)
+  }, [])
+
+  // Refresh my saved profile from the server once per load (e.g. new username)
+  useEffect(() => {
+    if (!readStoredUser()) return
+    axios.get('/api/user/me', { withCredentials: true })
+      .then((res) => {
+        localStorage.setItem('chatUser', JSON.stringify(res.data))
+        setAuthUser(res.data)
+      })
+      .catch(() => { /* a 401 is handled by the interceptor above */ })
+  }, [])
 
   return (
     <AuthContext.Provider value={[AuthUser, setAuthUser]}>

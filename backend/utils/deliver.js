@@ -1,0 +1,43 @@
+import User from "../models/user.model.js"
+import { Group } from "../models/group.model.js"
+import { Message } from "../models/message.model.js"
+import { Conversation } from "../models/conversation.model.js"
+import { emitToUsers } from "./notify.js"
+
+const same = (a, b) => String(a) === String(b)
+
+// Send a text message on someone's behalf (used by Nexa and scheduled messages).
+// Applies the same rules as the app: contacts only, group members only, admins-only announcements.
+// Everyone involved, including the sender, gets a live `newMessage`.
+export const deliverText = async ({ senderId, receiverId = null, groupId = null, text, ref = null }) => {
+  const body = String(text || "").trim()
+  if (!body) throw new Error("The message is empty")
+
+  if (groupId) {
+    const group = await Group.findById(groupId)
+    if (!group || !group.members.some((m) => same(m, senderId))) throw new Error("You're not in that group")
+    if (group.announcement && !group.admins.some((a) => same(a, senderId))) throw new Error("Only admins can post announcements there")
+    const msg = await Message.create({ senderId, groupId, message: body })
+    group.reads.set(String(senderId), new Date())
+    group.updatedAt = new Date()
+    await group.save()
+    emitToUsers(group.members, "newMessage", msg)
+    return msg
+  }
+
+  const self = same(senderId, receiverId)
+  if (!self) {
+    const sender = await User.findById(senderId).select("contacts")
+    if (!sender?.contacts.some((c) => same(c, receiverId))) throw new Error("That person isn't in your contacts")
+  }
+  let conversation = self
+    ? await Conversation.findOne({ members: { $size: 2 }, "members.0": senderId, "members.1": senderId })
+    : await Conversation.findOne({ members: { $all: [senderId, receiverId] } })
+  if (!conversation) conversation = await Conversation.create({ members: [senderId, receiverId] })
+
+  const msg = await Message.create({ senderId, receiverId, message: body, seen: self, ref })
+  conversation.messages.push(msg._id)
+  await conversation.save()
+  emitToUsers(self ? [senderId] : [receiverId, senderId], "newMessage", msg)
+  return msg
+}

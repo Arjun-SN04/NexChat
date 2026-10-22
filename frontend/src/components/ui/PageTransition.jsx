@@ -2,12 +2,12 @@ import { motion } from 'motion/react'
 
 const EASE = [0.22, 1, 0.36, 1]
 
-// Wraps a page so it fades/slides in on enter and out on exit.
+// Wraps a page so it fades in on enter and out on exit. Kept short and subtle.
 const PageTransition = ({ children, className = '' }) => (
   <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0, transition: { duration: 0.35, ease: EASE } }}
-    exit={{ opacity: 0, y: -6, transition: { duration: 0.18, ease: 'easeIn' } }}
+    initial={{ opacity: 0, y: 4 }}
+    animate={{ opacity: 1, y: 0, transition: { duration: 0.22, ease: EASE } }}
+    exit={{ opacity: 0, transition: { duration: 0.12, ease: 'easeOut' } }}
     className={className}
   >
     {children}

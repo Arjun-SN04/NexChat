@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LuLayers, LuMegaphone, LuSparkles, LuUsers } from 'react-icons/lu'
 
 // Profile photo (or initials on a soft colour picked from the name) plus optional online dot.
 const PALETTE = [
@@ -48,5 +49,25 @@ const Avatar = ({ name, src, size = 'md', online = false }) => {
   </div>
   )
 }
+
+const ICON_SIZES = { xs: 'size-3.5', sm: 'size-4', md: 'size-5', lg: 'size-8' }
+
+// Picture for a group (people icon), an announcements group (megaphone) or a
+// community (stacked squares, in a rounded square so it stands out from groups).
+export const GroupAvatar = ({ name, size = 'md', announcement = false, community = false }) => {
+  const Icon = community ? LuLayers : announcement ? LuMegaphone : LuUsers
+  return (
+    <div className={`flex shrink-0 items-center justify-center ${community ? 'rounded-xl' : 'rounded-full'} ${SIZES[size]} ${colorOf(name)}`}>
+      <Icon className={ICON_SIZES[size]} />
+    </div>
+  )
+}
+
+// NexChat AI's picture
+export const AiAvatar = ({ size = 'md' }) => (
+  <div className={`flex shrink-0 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white ${SIZES[size]}`}>
+    <LuSparkles className={ICON_SIZES[size]} />
+  </div>
+)
 
 export default Avatar

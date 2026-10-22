@@ -1,11 +1,14 @@
 import { motion } from 'motion/react'
 import { LuArrowLeft } from 'react-icons/lu'
 import { Button, Logo } from './ui'
+import { useLightPage } from '../hooks/useThemeClass'
 
 const EASE = [0.22, 1, 0.36, 1]
 
 // Sign in / sign up layout: form on the left, framed photo panel on the right.
-const AuthLayout = ({ title, subtitle, image, imageAlt, quote, floating, footer, children }) => (
+const AuthLayout = ({ title, subtitle, image, imageAlt, quote, floating, footer, children }) => {
+  useLightPage()
+  return (
   <div className="min-h-dvh bg-white lg:grid lg:grid-cols-[1fr_1.05fr] lg:p-3">
     {/* Form side */}
     <main className="relative flex min-h-dvh flex-col lg:min-h-0">
@@ -56,7 +59,8 @@ const AuthLayout = ({ title, subtitle, image, imageAlt, quote, floating, footer,
       </motion.div>
     </aside>
   </div>
-)
+  )
+}
 
 // Small glass card that floats in and bobs gently.
 export const FloatCard = ({ className = '', delay = 0, children }) => (

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { AnimatePresence, motion } from 'motion/react'
-import { LuCamera, LuCheck, LuFileText, LuLoaderCircle, LuMic, LuPaperclip, LuPencil, LuReply, LuSendHorizontal, LuTrash2, LuX } from 'react-icons/lu'
+import { LuCamera, LuCheck, LuSmile, LuSparkles, LuUndo2, LuFileText, LuLoaderCircle, LuMic, LuPaperclip, LuPencil, LuReply, LuSendHorizontal, LuTrash2, LuX } from 'react-icons/lu'
 import useSendMessage from '../../context/useSendMessage'
 import useConversation from '../../Zustand/UserConversation'
 import { useAuth } from '../../context/AuthProvider'
@@ -9,6 +9,8 @@ import { useSocket } from '../../context/SocketProvider'
 import { canEdit, jumpToMessage } from '../../utils/messages'
 import { loadConversations } from '../../utils/conversations'
 import { ACCEPT, MAX_FILE_BYTES, attachmentLabel, formatBytes, prepareFile } from '../../utils/attachments'
+import EmojiPopover from './EmojiPopover'
+import { canPost } from '../../utils/groups'
 import useVoiceRecorder, { MAX_VOICE_SECONDS } from '../../hooks/useVoiceRecorder'
 import CameraDialog from './CameraDialog'
 
@@ -35,23 +37,40 @@ const TypeSent = () => {
   const voice = useVoiceRecorder()
   const [AuthUser] = useAuth()
   const inputRef = useRef(null)
+  const emojiBtnRef = useRef(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+
+  // ✨ Nexa rewrite: shorten, make professional, etc. Keeps the old text for Undo.
+  const nexaRef = useRef(null)
+  const nexaBtnRef = useRef(null)
+  const [nexaOpen, setNexaOpen] = useState(false)
+  const [rewriting, setRewriting] = useState(false)
+  const [undoText, setUndoText] = useState(null)
+  useEffect(() => {
+    if (!nexaOpen) return
+    const onDown = (e) => !nexaRef.current?.contains(e.target) && !nexaBtnRef.current?.contains(e.target) && setNexaOpen(false)
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [nexaOpen])
   const myId = String(AuthUser?._id)
   const { socket } = useSocket()
 
   // Typing indicator: tell the other person while I'm typing
   const typingTo = useRef(null)
+  const typingGroup = useRef(false) // groups relay typing to every member
   const typingTimer = useRef(null)
   const stopTypingSignal = () => {
     clearTimeout(typingTimer.current)
-    if (typingTo.current) socket?.emit('stopTyping', { to: typingTo.current })
+    if (typingTo.current) socket?.emit('stopTyping', { to: typingTo.current, group: typingGroup.current })
     typingTo.current = null
   }
   const typingSignal = () => {
     const to = selectedConversation?._id
-    if (!to || !socket) return
+    if (!to || !socket || String(to) === myId) return
     if (typingTo.current !== to) {
       stopTypingSignal()
-      socket.emit('typing', { to })
+      typingGroup.current = !!selectedConversation?.isGroup
+      socket.emit('typing', { to, group: typingGroup.current })
       typingTo.current = to
     }
     clearTimeout(typingTimer.current)
@@ -115,7 +134,40 @@ const TypeSent = () => {
   useEffect(resize, [text])
 
   // Focus the box when opening a chat; drop any draft from the previous one
-  useEffect(() => { setText(''); setError(''); inputRef.current?.focus() }, [selectedConversation?._id])
+  useEffect(() => { setText(''); setError(''); setEmojiOpen(false); setUndoText(null); inputRef.current?.focus() }, [selectedConversation?._id])
+
+  const rewrite = async (style) => {
+    setNexaOpen(false)
+    const original = text
+    if (!original.trim()) return
+    setRewriting(true)
+    setError('')
+    try {
+      const res = await axios.post('/api/ai/rewrite', { text: original, style }, { withCredentials: true })
+      setText(res.data.text)
+      setUndoText(original)
+      inputRef.current?.focus()
+    } catch (err) {
+      setError(err.response?.data?.error || "Nexa couldn't rewrite that. Try again.")
+    } finally {
+      setRewriting(false)
+    }
+  }
+
+  // Put the emoji where the cursor is (or replace the selected text)
+  const insertEmoji = (emoji) => {
+    const el = inputRef.current
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    setText((prev) => prev.slice(0, start) + emoji + prev.slice(end))
+    if (!editingMessage) typingSignal()
+    requestAnimationFrame(() => {
+      if (!el) return
+      // On phones, focusing would pop the keyboard up over the picker
+      if (window.matchMedia('(pointer: fine)').matches) el.focus()
+      el.setSelectionRange(start + emoji.length, start + emoji.length)
+    })
+  }
 
   // Start editing: load the message text into the box
   useEffect(() => {
@@ -166,6 +218,7 @@ const TypeSent = () => {
     const file = pendingFile?.file || null
     stopTypingSignal()
     setText('')
+    setUndoText(null)
     setReplyingTo(null)
     if (file) setProgress(0)
     const sendError = await sendMessage(value, replyId, file, setProgress)
@@ -219,10 +272,65 @@ const TypeSent = () => {
   const canSubmit = (text.trim().length > 0 || (!!pendingFile && !editingMessage) || (!!editingMessage?.attachment)) && !busy && !preparing
   const firstName = selectedConversation?.fullName?.split(' ')[0]
   const target = editingMessage || replyingTo
-  const replyName = replyingTo && (String(replyingTo.senderId) === myId ? 'yourself' : firstName)
+  const replyName = replyingTo && (String(replyingTo.senderId) === myId
+    ? 'yourself'
+    : selectedConversation?.isGroup
+      ? useConversation.getState().groupPeople[String(replyingTo.senderId)]?.fullName?.split(' ')[0]
+        || selectedConversation.members?.find((m) => String(m._id) === String(replyingTo.senderId))?.fullName?.split(' ')[0]
+      : firstName)
+
+  // Typing "@", "@n", "@ne"… offers to mention Nexa (in groups and one-to-one chats)
+  const mentionMatch = !editingMessage && text.match(/(^|\s)@(\w*)$/)
+  const offerNexa = !!mentionMatch && 'nexa'.startsWith(mentionMatch[2].toLowerCase()) && mentionMatch[2].toLowerCase() !== 'nexa'
+  const mentionNexa = () => {
+    setText((t) => t.replace(/@\w*$/, '@Nexa '))
+    inputRef.current?.focus()
+  }
+
+  // Announcements: only admins can post
+  if (!canPost(selectedConversation, myId)) {
+    return (
+      <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-4 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+        Only community admins can send messages here.
+      </div>
+    )
+  }
 
   return (
-    <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:px-8 dark:border-slate-800 dark:bg-slate-950">
+    <div className="relative shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:px-8 dark:border-slate-800 dark:bg-slate-950">
+      <AnimatePresence>
+        {emojiOpen && <EmojiPopover onPick={insertEmoji} onClose={() => setEmojiOpen(false)} toggleRef={emojiBtnRef} />}
+      </AnimatePresence>
+
+      {nexaOpen && (
+        <div ref={nexaRef} role="menu" className="absolute bottom-full right-4 z-30 mb-2 w-56 rounded-xl bg-white p-1 shadow-xl ring-1 ring-slate-200 sm:right-6 lg:right-8 dark:bg-slate-900 dark:ring-slate-800">
+          <p className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400"><LuSparkles className="size-3" /> Rewrite with Nexa</p>
+          {[['shorten', 'Shorten'], ['professional', 'More professional'], ['friendly', 'Friendlier'], ['grammar', 'Fix spelling & grammar'], ['english', 'Translate to English']].map(([style, label]) => (
+            <button key={style} role="menuitem" onClick={() => rewrite(style)} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {offerNexa && (
+        <button onClick={mentionNexa} className="mb-2 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[13px] shadow-sm ring-1 ring-violet-200 transition hover:bg-violet-50 dark:bg-slate-800 dark:ring-violet-500/30 dark:hover:bg-violet-500/10">
+          <span className="flex size-5 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white"><LuSparkles className="size-3" /></span>
+          <span className="font-medium">@Nexa</span>
+          <span className="text-slate-500 dark:text-slate-400">{selectedConversation?.isGroup ? 'ask the AI, answers for everyone' : selectedConversation?.isSelf ? 'ask the AI here' : 'ask the AI, both of you see it'}</span>
+        </button>
+      )}
+
+      {undoText !== null && !rewriting && (
+        <div className="mb-2 flex items-center gap-2 px-1 text-xs text-slate-500 dark:text-slate-400">
+          <LuSparkles className="size-3.5 text-violet-500" /> Rewritten by Nexa
+          <button onClick={() => { setText(undoText); setUndoText(null) }} className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+            <LuUndo2 className="size-3" /> Undo
+          </button>
+          <button onClick={() => setUndoText(null)} className="ml-auto hover:text-slate-700 dark:hover:text-slate-200">Dismiss</button>
+        </div>
+      )}
+
       {(error || voice.error) && (
         <p className="mb-2 px-1 text-xs font-medium text-red-600 dark:text-red-400">{error || voice.error}</p>
       )}
@@ -380,6 +488,19 @@ const TypeSent = () => {
                 <LuCamera className="size-4.5" />
               </button>
             )}
+            <button
+              ref={emojiBtnRef}
+              type="button"
+              onClick={() => setEmojiOpen((o) => !o)}
+              aria-label="Emoji"
+              aria-expanded={emojiOpen}
+              title="Emoji"
+              className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white ${
+                emojiOpen ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <LuSmile className="size-4.5" />
+            </button>
             <textarea
               ref={inputRef}
               rows={1}
@@ -387,10 +508,24 @@ const TypeSent = () => {
               onChange={handleChange}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
-              placeholder={editingMessage ? 'Edit your message' : firstName ? `Message ${firstName}` : 'Write a message'}
+              placeholder={editingMessage ? 'Edit your message' : selectedConversation?.isGroup ? `Message ${selectedConversation.name}` : firstName ? `Message ${firstName}` : 'Write a message'}
               className="min-h-10 flex-1 resize-none bg-transparent py-2.5 pl-1 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
               style={{ maxHeight: MAX_HEIGHT }}
             />
+            {text.trim().length > 1 && !editingMessage && (
+              <button
+                ref={nexaBtnRef}
+                type="button"
+                onClick={() => setNexaOpen((o) => !o)}
+                disabled={rewriting}
+                aria-label="Rewrite with Nexa"
+                aria-expanded={nexaOpen}
+                title="Rewrite with Nexa"
+                className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-500/10 dark:hover:text-violet-400 ${nexaOpen || rewriting ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400'}`}
+              >
+                <LuSparkles className={`size-4.5 ${rewriting ? 'animate-pulse' : ''}`} />
+              </button>
+            )}
             {/* Mic when there's nothing to send, otherwise Send */}
             {!text.trim() && !pendingFile && !editingMessage && !busy ? (
               <button

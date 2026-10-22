@@ -8,6 +8,12 @@ import ContactInfo from './ContactInfo'
 import ClearChatDialog from './ClearChatDialog'
 import SelectionBar from './SelectionBar'
 import ForwardDialog from './ForwardDialog'
+import GroupInfo from '../groups/GroupInfo'
+import CommunityPage from '../groups/CommunityPage'
+import AiChat from '../ai/AiChat'
+import ScheduledBar from './ScheduledBar'
+import SmartReplies from './SmartReplies'
+import CatchUp from './CatchUp'
 import Avatar from '../Avatar'
 import { LogoMark } from '../../components/ui'
 import useConversation from '../../Zustand/UserConversation'
@@ -64,6 +70,8 @@ const Right = () => {
   const [dragging, setDragging] = useState(false)
 
   if (!selectedConversation) return <Welcome />
+  if (selectedConversation.isAi) return <AiChat />
+  if (selectedConversation.isCommunity) return <CommunityPage key={selectedConversation._id} community={selectedConversation} />
 
   const dropHandlers = {
     onDragOver: (e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } },
@@ -92,12 +100,18 @@ const Right = () => {
           infoOpen={infoOpen}
           onClear={() => setConfirmClear(true)}
         />
+        <CatchUp key={`cu-${selectedConversation._id}`} />
         <Messages />
+        <ScheduledBar key={selectedConversation._id} />
+        {!selectionMode && <SmartReplies key={`sr-${selectedConversation._id}`} />}
         {selectionMode ? <SelectionBar /> : <TypeSent />}
       </div>
 
       <AnimatePresence>
-        {infoOpen && (
+        {infoOpen && selectedConversation.isGroup && (
+          <GroupInfo key={selectedConversation._id} group={selectedConversation} onClose={() => setInfoOpen(false)} />
+        )}
+        {infoOpen && !selectedConversation.isGroup && (
           <ContactInfo
             user={selectedConversation}
             onClose={() => setInfoOpen(false)}

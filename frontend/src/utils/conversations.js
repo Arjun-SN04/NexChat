@@ -1,17 +1,25 @@
 import axios from 'axios'
 import useConversation from '../Zustand/UserConversation'
 
-// Load the sidebar summary (last message + unread count per contact) from the server.
+// Load the sidebar summary (last message + unread count per chat and group) from the server.
 export const loadConversations = async () => {
   try {
-    const res = await axios.get('/api/message/conversations', { withCredentials: true })
+    const [direct, groups] = await Promise.all([
+      axios.get('/api/message/conversations', { withCredentials: true }),
+      axios.get('/api/groups', { withCredentials: true }),
+    ])
     const previews = {}
     const unread = {}
-    res.data.forEach((c) => {
+    direct.data.forEach((c) => {
       if (c.lastMessage) previews[c.userId] = c.lastMessage
       if (c.unread) unread[c.userId] = c.unread
     })
+    groups.data.groups.forEach((g) => {
+      if (g.lastMessage) previews[g._id] = g.lastMessage
+      if (g.unread) unread[g._id] = g.unread
+    })
     const store = useConversation.getState()
+    store.setGroups(groups.data.groups)
     const openId = store.selectedConversation?._id
     if (openId) delete unread[String(openId)]
     store.setPreviews(previews)
@@ -21,9 +29,13 @@ export const loadConversations = async () => {
   }
 }
 
-// Tell the server I've read everything from this person.
-export const markSeen = (userId) =>
-  axios.put(`/api/message/seen/${userId}`, {}, { withCredentials: true }).catch(() => {})
+// The "message yourself" contact, pinned at the top of the chat list.
+export const selfContact = (authUser) =>
+  authUser ? { ...authUser, fullName: `${authUser.fullName} (You)`, isSelf: true } : null
+
+// Tell the server I've read everything from this person (or in this group).
+export const markSeen = (id, isGroup = false) =>
+  axios.put(isGroup ? `/api/groups/${id}/read` : `/api/message/seen/${id}`, {}, { withCredentials: true }).catch(() => {})
 
 // Short time label for the sidebar: "14:05", "Yesterday" or "12/03/26"
 export const shortTime = (date) => {

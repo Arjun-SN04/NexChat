@@ -3,10 +3,15 @@ import { Message } from "../models/message.model.js"
 import { getReceiverSocketId, io } from "../socket/socket.js"
 import { uploadToCloudinary, deleteFromCloudinary } from "../config/cloudinary.js"
 import User from "../models/user.model.js"
+import { Group } from "../models/group.model.js"
+import { emitToUsers } from "../utils/notify.js"
+import { answerDirectMention } from "../utils/nexaGroup.js"
+
+const zoneHeader = (req) => { try { const tz = req.headers["x-time-zone"]; new Intl.DateTimeFormat("en-US", { timeZone: tz }); return tz || "UTC" } catch { return "UTC" } }
 
 // Forwarded messages share the same Cloudinary file. Only delete a file once
 // no remaining message uses it. Call this AFTER deleting the messages.
-const releaseAttachments = async (attachments = []) => {
+export const releaseAttachments = async (attachments = []) => {
   const unused = []
   for (const a of attachments) {
     if (!a?.publicId) continue
@@ -18,6 +23,32 @@ const releaseAttachments = async (attachments = []) => {
 
 const MAX_BULK = 50
 
+// Tell everyone who can see this message about a change (except `except`):
+// the group's members, or the other person in a direct chat.
+export const notifyAudience = async (message, event, data, except) => {
+  if (message.groupId) {
+    const group = await Group.findById(message.groupId).select("members")
+    if (group) emitToUsers(group.members, event, data, except)
+  } else if (message.botChat?.length) {
+    emitToUsers(message.botChat, event, data, except)
+  } else {
+    emitToUsers([message.receiverId, message.senderId], event, data, except)
+  }
+}
+
+const isSelf = (a, b) => String(a) === String(b)
+
+// You can message yourself and your contacts, nobody else
+const canMessage = (me, otherId) =>
+  isSelf(me._id, otherId) || (me.contacts || []).some((c) => String(c) === String(otherId))
+
+// Find the chat between two people. A self chat stores the same user twice,
+// so it needs an exact match: `$all: [me, me]` would match every chat I'm in.
+const findConversation = (a, b) =>
+  isSelf(a, b)
+    ? Conversation.findOne({ members: { $size: 2 }, "members.0": a, "members.1": a })
+    : Conversation.findOne({ members: { $all: [a, b] } })
+
 // Messages can only be edited for this long after they are sent
 export const EDIT_WINDOW_MS = 10 * 60 * 1000
 
@@ -26,6 +57,9 @@ export const sendMessage = async (req, res) => {
     const { message, replyTo } = req.body
     const { id: receiverId } = req.params
     const senderId = req.user._id
+
+    if (!canMessage(req.user, receiverId))
+      return res.status(403).json({ error: "You can only message your contacts" })
 
     const text = (message || "").trim()
     if (!text && !req.file) return res.status(400).json({ error: "Message cannot be empty" })
@@ -39,9 +73,7 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    let conversation = await Conversation.findOne({
-      members: { $all: [senderId, receiverId] }
-    })
+    let conversation = await findConversation(senderId, receiverId)
     if (!conversation) {
       conversation = await Conversation.create({ members: [senderId, receiverId] })
     }
@@ -57,16 +89,23 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    const newMessage = new Message({ senderId, receiverId, message: text, replyTo: replyTo || null, attachment })
+    const self = isSelf(senderId, receiverId)
+    // Notes to self are never "unread"
+    const newMessage = new Message({ senderId, receiverId, message: text, replyTo: replyTo || null, attachment, seen: self })
     conversation.messages.push(newMessage._id)
     await Promise.all([conversation.save(), newMessage.save()])
 
-    const receiverSocketId = getReceiverSocketId(receiverId)
+    // The sender adds their own copy from the response, so don't echo a self message back
+    const receiverSocketId = !self && getReceiverSocketId(receiverId)
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", newMessage)
     }
 
     res.status(201).json(newMessage)
+
+    // "@Nexa …": Nexa answers in this chat, for both people (in the background)
+    answerDirectMention({ sender: req.user, otherId: receiverId, message: newMessage, timeZone: zoneHeader(req) })
+      .catch((err) => console.log("@Nexa (direct) error:", err.message))
   } catch (error) {
     console.log("sendMessage error:", error)
     res.status(500).json({ error: "Internal server error" })
@@ -77,9 +116,7 @@ export const getMessage = async (req, res) => {
   try {
     const { id: chatUser } = req.params
     const senderId = req.user._id
-    let conversation = await Conversation.findOne({
-      members: { $all: [senderId, chatUser] }
-    }).populate("messages")
+    const conversation = await findConversation(senderId, chatUser).populate("messages")
     if (!conversation) return res.status(200).json([])
     res.status(200).json(conversation.messages)
   } catch (error) {
@@ -105,11 +142,7 @@ export const deleteMessage = async (req, res) => {
     await Message.findByIdAndDelete(messageId)
     await releaseAttachments([message.attachment])
 
-    // Notify both parties via socket
-    const receiverSocketId = getReceiverSocketId(message.receiverId)
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageDeleted", messageId)
-    }
+    await notifyAudience(message, "messageDeleted", messageId, userId)
 
     res.status(200).json({ message: "Message deleted", messageId })
   } catch (error) {
@@ -135,10 +168,7 @@ export const editMessage = async (req, res) => {
     existing.edited = true
     await existing.save()
 
-    const receiverSocketId = getReceiverSocketId(existing.receiverId)
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageEdited", existing)
-    }
+    await notifyAudience(existing, "messageEdited", existing, userId)
 
     res.status(200).json(existing)
   } catch (error) {
@@ -152,9 +182,7 @@ export const deleteConversation = async (req, res) => {
     const { id: otherUserId } = req.params
     const userId = req.user._id
 
-    const conversation = await Conversation.findOne({
-      members: { $all: [userId, otherUserId] }
-    })
+    const conversation = await findConversation(userId, otherUserId)
     if (!conversation) return res.status(404).json({ error: "Conversation not found" })
 
     const withFiles = await Message.find({ _id: { $in: conversation.messages }, attachment: { $ne: null } }).select("attachment")
@@ -162,7 +190,7 @@ export const deleteConversation = async (req, res) => {
     await releaseAttachments(withFiles.map((m) => m.attachment))
     await Conversation.findByIdAndDelete(conversation._id)
 
-    const receiverSocketId = getReceiverSocketId(otherUserId)
+    const receiverSocketId = !isSelf(userId, otherUserId) && getReceiverSocketId(otherUserId)
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("conversationDeleted", { otherUserId: userId })
     }
@@ -205,18 +233,19 @@ export const getConversations = async (req, res) => {
     const conversations = await Conversation.find({ members: userId }).select("members messages")
     const lastIds = conversations.map((c) => c.messages[c.messages.length - 1]).filter(Boolean)
     const lastMessages = await Message.find({ _id: { $in: lastIds } })
-      .select("message senderId receiverId createdAt attachment.kind attachment.name")
+      .select("message senderId receiverId createdAt attachment.kind attachment.name call")
     const lastById = new Map(lastMessages.map((m) => [m._id.toString(), m]))
 
     // Only messages explicitly marked unseen count (older messages have no flag)
     const unread = await Message.aggregate([
-      { $match: { receiverId: userId, seen: false } },
+      { $match: { receiverId: userId, senderId: { $ne: userId }, seen: false } },
       { $group: { _id: "$senderId", count: { $sum: 1 } } },
     ])
     const unreadBySender = new Map(unread.map((u) => [u._id.toString(), u.count]))
 
     const summary = conversations.map((c) => {
-      const otherId = c.members.find((m) => m.toString() !== userId.toString())?.toString()
+      // A self chat has no "other" member: it belongs to me
+      const otherId = (c.members.find((m) => m.toString() !== userId.toString()) || c.members[0])?.toString()
       const lastId = c.messages[c.messages.length - 1]?.toString()
       return {
         userId: otherId,
@@ -248,13 +277,8 @@ export const deleteMessages = async (req, res) => {
     await Message.deleteMany({ _id: { $in: mineIds } })
     await releaseAttachments(mine.map((m) => m.attachment))
 
-    // Tell each receiver which of their messages disappeared
-    const byReceiver = {}
-    mine.forEach((m) => (byReceiver[m.receiverId.toString()] ||= []).push(m._id.toString()))
-    Object.entries(byReceiver).forEach(([receiverId, deletedIds]) => {
-      const socketId = getReceiverSocketId(receiverId)
-      if (socketId) io.to(socketId).emit("messagesDeleted", deletedIds)
-    })
+    // Tell whoever could see each message that it disappeared
+    for (const m of mine) await notifyAudience(m, "messagesDeleted", [m._id.toString()], userId)
 
     res.status(200).json({ deleted: mineIds.map(String) })
   } catch (error) {
@@ -270,21 +294,29 @@ export const forwardMessages = async (req, res) => {
     const userId = req.user._id
     const messageIds = Array.isArray(req.body.messageIds) ? req.body.messageIds.slice(0, MAX_BULK) : []
     const receiverIds = Array.isArray(req.body.receiverIds) ? req.body.receiverIds.slice(0, 20) : []
-    if (!messageIds.length || !receiverIds.length)
-      return res.status(400).json({ error: "Pick at least one message and one person" })
+    const groupIds = Array.isArray(req.body.groupIds) ? req.body.groupIds.slice(0, 20) : []
+    if (!messageIds.length || (!receiverIds.length && !groupIds.length))
+      return res.status(400).json({ error: "Pick at least one message and one chat" })
 
-    // You can only forward messages from your own chats
+    // You can only forward messages from your own chats and groups
+    const myGroupIds = await Group.find({ members: userId }).distinct("_id")
     const originals = await Message.find({
       _id: { $in: messageIds },
-      $or: [{ senderId: userId }, { receiverId: userId }],
+      $or: [{ senderId: userId }, { receiverId: userId }, { groupId: { $in: myGroupIds } }],
     }).sort({ createdAt: 1 })
     if (!originals.length) return res.status(404).json({ error: "Messages not found" })
 
-    const receivers = await User.find({ _id: { $in: receiverIds, $ne: userId } }).select("_id")
+    const allowed = receiverIds.filter((id) => canMessage(req.user, id))
+    const receivers = await User.find({ _id: { $in: allowed } }).select("_id")
+    // Groups I'm in (announcement groups only if I'm an admin there)
+    const groups = (await Group.find({ _id: { $in: groupIds }, members: userId }))
+      .filter((g) => !g.announcement || g.admins.some((a) => a.equals(userId)))
+    if (!receivers.length && !groups.length) return res.status(403).json({ error: "You can only forward to your contacts and groups" })
     const created = []
 
     for (const receiver of receivers) {
-      let conversation = await Conversation.findOne({ members: { $all: [userId, receiver._id] } })
+      const self = isSelf(userId, receiver._id)
+      let conversation = await findConversation(userId, receiver._id)
       if (!conversation) conversation = await Conversation.create({ members: [userId, receiver._id] })
 
       const copies = originals.map((o) => new Message({
@@ -293,13 +325,30 @@ export const forwardMessages = async (req, res) => {
         message: o.message,
         attachment: o.attachment,
         forwarded: true,
+        seen: self,
       }))
       await Message.insertMany(copies)
       conversation.messages.push(...copies.map((c) => c._id))
       await conversation.save()
 
-      const socketId = getReceiverSocketId(receiver._id)
+      const socketId = !self && getReceiverSocketId(receiver._id)
       if (socketId) copies.forEach((c) => io.to(socketId).emit("newMessage", c))
+      created.push(...copies)
+    }
+
+    for (const group of groups) {
+      const copies = originals.map((o) => new Message({
+        senderId: userId,
+        groupId: group._id,
+        message: o.message,
+        attachment: o.attachment,
+        forwarded: true,
+      }))
+      await Message.insertMany(copies)
+      group.reads.set(String(userId), new Date())
+      group.updatedAt = new Date()
+      await group.save()
+      copies.forEach((c) => emitToUsers(group.members, "newMessage", c, userId))
       created.push(...copies)
     }
 
@@ -325,7 +374,9 @@ export const reactToMessage = async (req, res) => {
 
     const message = await Message.findById(messageId)
     if (!message) return res.status(404).json({ error: "Message not found" })
-    const isMember = message.senderId.equals(userId) || message.receiverId.equals(userId)
+    const isMember = message.groupId
+      ? await Group.exists({ _id: message.groupId, members: userId })
+      : message.senderId.equals(userId) || message.receiverId?.equals(userId) || message.botChat?.some((id) => id.equals(userId))
     if (!isMember) return res.status(403).json({ error: "Not allowed" })
 
     const mine = message.reactions.find((r) => r.userId.equals(userId))
@@ -334,9 +385,7 @@ export const reactToMessage = async (req, res) => {
     else message.reactions.push({ userId, emoji })
     await message.save()
 
-    const otherId = message.senderId.equals(userId) ? message.receiverId : message.senderId
-    const socketId = getReceiverSocketId(otherId)
-    if (socketId) io.to(socketId).emit("messageReacted", { messageId, reactions: message.reactions })
+    await notifyAudience(message, "messageReacted", { messageId, reactions: message.reactions }, userId)
 
     res.status(200).json({ messageId, reactions: message.reactions })
   } catch (error) {

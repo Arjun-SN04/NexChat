@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Message from './Message'
-import Avatar from '../Avatar'
+import CallMessage from './CallMessage'
+import Avatar, { AiAvatar, GroupAvatar } from '../Avatar'
 import useGetMessages from '../../context/useGetMessages.js'
 import useSendMessage from '../../context/useSendMessage'
 import useConversation from '../../Zustand/UserConversation'
 import { useAuth } from '../../context/AuthProvider'
 import { AnimatePresence, motion } from 'motion/react'
-import { LuArrowDown } from 'react-icons/lu'
+import { jumpToMessage } from '../../utils/messages'
+import { LuArrowDown, LuBookmark, LuFileText, LuImage, LuLink } from 'react-icons/lu'
 
 const GROUP_GAP_MS = 5 * 60 * 1000 // messages within 5 minutes are grouped
 
@@ -50,8 +52,59 @@ const LoadingSkeleton = () => (
 
 const QUICK_REPLIES = ['Hey!', 'How are you?', "What's up?"]
 
+const SELF_IDEAS = [
+  { icon: LuBookmark, text: 'Notes and reminders' },
+  { icon: LuLink, text: 'Links to read later' },
+  { icon: LuImage, text: 'Photos and videos' },
+  { icon: LuFileText, text: 'Files and documents' },
+]
+
+// Empty "message yourself" chat: explain what it's for instead of a greeting.
+const EmptySelfChat = ({ user }) => (
+  <div className="flex h-full flex-col items-center justify-center py-12 text-center">
+    <div className="relative">
+      <Avatar name={user.fullName} src={user.avatar?.url} size="lg" />
+      <span className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-slate-50 dark:ring-slate-900">
+        <LuBookmark className="size-3.5" />
+      </span>
+    </div>
+    <p className="mt-4 text-lg font-semibold">Message yourself</p>
+    <p className="mt-1 max-w-xs text-sm text-slate-500 dark:text-slate-400">
+      Your private space. Only you can see what you send here.
+    </p>
+    <div className="mt-6 grid grid-cols-2 gap-2">
+      {SELF_IDEAS.map(({ icon: Icon, text }) => (
+        <div
+          key={text}
+          className="flex items-center gap-2 rounded-xl bg-white px-3 py-2.5 text-left text-[13px] font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700"
+        >
+          <Icon className="size-4 shrink-0 text-indigo-500" />
+          {text}
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
+const EmptyGroup = ({ group }) => (
+  <div className="flex h-full flex-col items-center justify-center py-12 text-center">
+    <GroupAvatar name={group.name} announcement={group.announcement} size="lg" />
+    <p className="mt-4 text-lg font-semibold">{group.name}</p>
+    <p className="mt-1 max-w-xs text-sm text-slate-500 dark:text-slate-400">
+      {group.announcement
+        ? 'Announcements from the community admins will appear here.'
+        : `${group.members?.length || 0} members. Say hi to get the conversation going.`}
+    </p>
+    {!group.announcement && (
+      <p className="mt-3 text-xs text-slate-400">Tip: type <span className="font-medium text-violet-500">@Nexa</span> to ask the AI here, for everyone.</p>
+    )}
+  </div>
+)
+
 const EmptyConversation = ({ user }) => {
   const { sendMessage, loading } = useSendMessage()
+  if (user.isSelf) return <EmptySelfChat user={user} />
+  if (user.isGroup) return <EmptyGroup group={user} />
   const firstName = user.fullName.split(' ')[0]
   return (
     <div className="flex h-full flex-col items-center justify-center py-12 text-center">
@@ -74,6 +127,31 @@ const EmptyConversation = ({ user }) => {
   )
 }
 
+const NexaThinking = () => (
+  <motion.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: 8 }}
+    transition={{ duration: 0.18 }}
+    className="mb-4 flex items-end gap-2"
+    role="status"
+    aria-live="polite"
+  >
+    <span className="relative">
+      <span className="absolute inset-0 animate-ping rounded-full bg-violet-400/40" />
+      <AiAvatar size="xs" />
+    </span>
+    <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-white px-3.5 py-2.5 text-[13px] text-slate-600 shadow-xs ring-1 ring-violet-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-violet-500/30">
+      <span className="font-medium text-violet-600 dark:text-violet-300">Nexa is thinking</span>
+      <span className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="size-1.5 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: `${i * 150}ms` }} />
+        ))}
+      </span>
+    </div>
+  </motion.div>
+)
+
 const TypingBubble = ({ name, src }) => (
   <motion.div
     initial={{ opacity: 0, y: 8 }}
@@ -82,7 +160,7 @@ const TypingBubble = ({ name, src }) => (
     transition={{ duration: 0.18 }}
     className="mb-4 flex items-end gap-2"
   >
-    <Avatar name={name} src={src} size="xs" />
+    {name === 'Nexa' ? <AiAvatar size="xs" /> : <Avatar name={name} src={src} size="xs" />}
     <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-white px-4 py-3 shadow-xs ring-1 ring-slate-200/80 dark:bg-slate-800 dark:ring-slate-700/60">
       {[0, 1, 2].map((i) => (
         <span key={i} className="size-1.5 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 150}ms` }} />
@@ -95,7 +173,7 @@ const NEAR_BOTTOM_PX = 150
 
 const Messages = () => {
   const { loading, messages } = useGetMessages()
-  const { selectedConversation, typingUsers } = useConversation()
+  const { selectedConversation, typingUsers, groupPeople, nexaId, pendingJump, setPendingJump, setHighlightedId, nexaThinking } = useConversation()
   const [AuthUser] = useAuth()
   const scrollRef = useRef(null)
   const lastConversation = useRef(null)
@@ -104,7 +182,21 @@ const Messages = () => {
   const [newCount, setNewCount] = useState(0)
 
   const myId = String(AuthUser?._id)
-  const isTyping = !!typingUsers[String(selectedConversation?._id)]
+  const typingValue = typingUsers[String(selectedConversation?._id)]
+  const isTyping = !!typingValue
+  // Nexa is answering an @Nexa here: I just asked, or the server says Nexa is typing
+  const nexaBusy = !!nexaThinking[String(selectedConversation?._id)] || typingValue === 'Nexa'
+  const isGroup = !!selectedConversation?.isGroup
+
+  // In groups, look people up by id (current members, then anyone who sent a message)
+  const people = useMemo(() => {
+    if (!isGroup) return {}
+    const map = { ...groupPeople }
+    for (const m of selectedConversation.members || []) if (m?._id) map[String(m._id)] = m
+    return map
+  }, [isGroup, groupPeople, selectedConversation?.members])
+  const personOf = (id) => (nexaId && String(id) === String(nexaId) ? { fullName: 'Nexa', isBot: true } : people[String(id)] || { fullName: 'Former member' })
+  const nameOf = (id) => personOf(id).fullName.split(' ')[0]
 
   const scrollToBottom = (behavior = 'smooth') => {
     const el = scrollRef.current
@@ -137,9 +229,17 @@ const Messages = () => {
 
   // Keep the typing bubble in view
   useEffect(() => {
-    if (isTyping && atBottom) scrollToBottom()
+    if ((isTyping || nexaBusy) && atBottom) scrollToBottom()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTyping])
+  }, [isTyping, nexaBusy])
+
+  // Coming from a reminder's "Go to message": scroll to it once it's loaded
+  useEffect(() => {
+    if (!pendingJump || loading || !messages.some((m) => String(m._id) === String(pendingJump))) return
+    const id = pendingJump
+    setPendingJump(null)
+    setTimeout(() => jumpToMessage(id, setHighlightedId), 150)
+  }, [pendingJump, loading, messages, setPendingJump, setHighlightedId])
 
   const byId = useMemo(() => new Map(messages.map((m) => [String(m._id), m])), [messages])
 
@@ -156,15 +256,26 @@ const Messages = () => {
     const next = messages[i + 1]
     const label = dateLabel(m.createdAt)
     if (!prev || dateLabel(prev.createdAt) !== label) items.push(<DateDivider key={`d-${m._id}`} label={label} />)
+    const itsMe = String(m.senderId) === myId
+    if (m.call) {
+      items.push(<CallMessage key={m._id} message={m} itsMe={itsMe} />)
+      return
+    }
+    const first = !sameGroup(prev, m)
+    const fromNexa = nexaId && String(m.senderId) === String(nexaId)
+    const sender = isGroup || fromNexa ? personOf(m.senderId) : selectedConversation
     items.push(
       <Message
         key={m._id}
         message={m}
-        itsMe={String(m.senderId) === myId}
-        first={!sameGroup(prev, m)}
+        itsMe={itsMe}
+        first={first}
         last={!sameGroup(m, next)}
-        contactName={selectedConversation?.fullName}
-        contactAvatar={selectedConversation?.avatar?.url}
+        contactName={sender?.fullName}
+        contactAvatar={sender?.avatar?.url}
+        senderLabel={(isGroup || fromNexa) && !itsMe && first ? sender.fullName : null}
+        isBot={!!sender?.isBot}
+        nameOf={isGroup ? nameOf : (id) => (nexaId && String(id) === String(nexaId) ? 'Nexa' : selectedConversation?.fullName?.split(' ')[0])}
         myId={myId}
         original={m.replyTo ? byId.get(String(m.replyTo)) ?? null : undefined}
         now={now}
@@ -181,7 +292,11 @@ const Messages = () => {
           ) : messages.length > 0 ? (
             <div className="pb-2 pt-2">
               {items}
-              <AnimatePresence>{isTyping && <TypingBubble name={selectedConversation?.fullName} src={selectedConversation?.avatar?.url} />}</AnimatePresence>
+              <AnimatePresence>
+                {nexaBusy
+                  ? <NexaThinking key="nexa" />
+                  : isTyping && <TypingBubble key="typing" name={typeof typingValue === 'string' ? typingValue : selectedConversation?.fullName} src={typeof typingValue === 'string' ? null : selectedConversation?.avatar?.url} />}
+              </AnimatePresence>
             </div>
           ) : (
             selectedConversation && <EmptyConversation user={selectedConversation} />

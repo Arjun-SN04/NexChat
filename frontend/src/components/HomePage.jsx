@@ -4,24 +4,27 @@ import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react'
 import Lenis from 'lenis'
 import 'lenis/dist/lenis.css'
 import {
-  LuArrowRight, LuArrowUpRight, LuBriefcase, LuCheck, LuCheckCheck, LuCookie, LuFingerprint,
-  LuGraduationCap, LuHeart, LuKeyRound, LuPencil, LuSearch,
-  LuSendHorizontal, LuShieldCheck, LuTrash2, LuUserPlus, LuUsers, LuZap, LuMessagesSquare,
+  LuArrowRight, LuArrowUpRight, LuBriefcase, LuCheck, LuCheckCheck, LuCookie, LuFileText, LuFingerprint,
+  LuForward, LuGraduationCap, LuHeart, LuPencil, LuPlay, LuSearch, LuSmile,
+  LuShieldCheck, LuQrCode, LuSun, LuMoon, LuTrash2, LuUserPlus, LuUsers, LuZap, LuMessagesSquare,
 } from 'react-icons/lu'
+import { QRCodeSVG } from 'qrcode.react'
 import { FaGithub } from 'react-icons/fa6'
 import { useAuth } from '../context/AuthProvider'
 import { Button, Logo, Reveal } from './ui'
 import usePageTitle from '../hooks/usePageTitle'
+import useThemeClass from '../hooks/useThemeClass'
+import { useTheme } from '../context/ThemeProvider'
 
 const EASE = [0.22, 1, 0.36, 1]
 
 /* ─── Small building blocks ───────────────────────────────── */
 const avatar = (n) => `/images/avatars/${n}.jpg`
 
-const Photo = ({ n, className = 'size-9', online = false, ring = 'ring-2 ring-white' }) => (
+const Photo = ({ n, className = 'size-9', online = false, ring = 'ring-2 ring-white dark:ring-zinc-900' }) => (
   <div className="relative shrink-0">
     <img src={avatar(n)} alt="" loading="lazy" className={`${className} rounded-full object-cover ${ring}`} />
-    {online && <span className="absolute bottom-0 right-0 size-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />}
+    {online && <span className="absolute bottom-0 right-0 size-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-900" />}
   </div>
 )
 
@@ -48,243 +51,276 @@ const Serif = ({ children, className = '' }) => (
 )
 
 const Label = ({ children }) => (
-  <p className="text-sm font-semibold text-indigo-600">{children}</p>
+  <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{children}</p>
 )
 
-/* ─── Hero background: soft, slowly drifting organic shapes ─ */
-const BLOBS = [
-  { d: 'M421 309Q398 368 348 404T236 436 124 393 62 288 93 170 197 90 317 86 410 165 421 309Z', cls: '-left-48 -top-40 size-[680px] fill-indigo-200/70', dur: 28, move: { x: [0, 60, 0], y: [0, 40, 0], rotate: [0, 25, 0] } },
-  { d: 'M439 297Q416 344 381 384T289 439 182 427 89 366 57 263 95 155 196 76 315 75 410 152 439 297Z', cls: '-right-40 -top-24 size-[620px] fill-violet-200/60', dur: 32, move: { x: [0, -50, 0], y: [0, 60, 0], rotate: [0, -20, 0] } },
-  { d: 'M408 322Q376 394 300 424T157 401 71 300 92 172 205 82 337 88 425 182 408 322Z', cls: 'left-1/3 -bottom-56 size-[560px] fill-sky-200/50', dur: 36, move: { x: [0, 40, 0], y: [0, -40, 0], rotate: [0, 30, 0] } },
-]
-
-const HeroBackground = () => (
-  <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-    {BLOBS.map(({ d, cls, dur, move }, i) => (
-      <motion.svg
-        key={i}
-        viewBox="0 0 500 500"
-        className={`absolute blur-3xl ${cls}`}
-        animate={{ ...move, scale: [1, 1.08, 1] }}
-        transition={{ duration: dur, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <path d={d} />
-      </motion.svg>
-    ))}
-    <div className="absolute inset-x-0 bottom-0 h-40 bg-linear-to-b from-transparent to-white" />
-  </div>
-)
-
-/* ─── Hero visual ─────────────────────────────────────────── */
-const HeroChatCard = () => (
-  <div className="w-[290px] overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-950/20 ring-1 ring-slate-900/5">
-    <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
-      <AvatarStack ids={[1, 2, 3]} size="size-7" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-900">Weekend plans</p>
-        <p className="text-xs text-emerald-600">3 online</p>
-      </div>
-      <LuMessagesSquare className="size-4 text-slate-400" />
-    </div>
-    <div className="space-y-2.5 bg-slate-50/70 p-4">
-      <div className="flex items-end gap-2">
-        <Photo n={1} className="size-6" ring="" />
-        <p className="rounded-2xl rounded-bl-md bg-white px-3 py-2 text-[13px] text-slate-700 ring-1 ring-slate-200/70">Still coming tonight?</p>
-      </div>
-      <div className="flex justify-end">
-        <p className="rounded-2xl rounded-br-md bg-indigo-600 px-3 py-2 text-[13px] text-white">
-          On my way, 10 minutes
-          <LuCheckCheck className="ml-1.5 inline size-3.5 text-indigo-200" />
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Photo n={2} className="size-6" ring="" />
-        <span className="flex gap-1 rounded-2xl rounded-bl-md bg-white px-3 py-2.5 ring-1 ring-slate-200/70">
-          {[0, 1, 2].map((i) => (
-            <span key={i} className="size-1.5 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 140}ms` }} />
-          ))}
-        </span>
-      </div>
-    </div>
-  </div>
-)
-
-const HeroVisual = () => (
+/* ─── Hero photo ──────────────────────────────────────────── */
+const HeroPhoto = () => (
   <motion.div
-    initial={{ opacity: 0, y: 32 }}
+    initial={{ opacity: 0, y: 24 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.9, delay: 0.15, ease: EASE }}
-    className="relative aspect-[4/3] overflow-hidden rounded-[1.75rem] ring-1 ring-slate-900/5 lg:aspect-auto lg:h-[min(680px,calc(100dvh-180px))] lg:min-h-[460px]"
+    transition={{ duration: 0.8, delay: 0.15, ease: EASE }}
+    className="relative mx-auto mt-16 aspect-[4/3] max-w-[1180px] overflow-hidden rounded-3xl sm:mt-20 sm:aspect-[16/9] lg:aspect-[21/9]"
   >
-    <ParallaxImage src="/images/hero.jpg" alt="Friends laughing together at a message on a phone" distance={30} />
-    <div className="absolute inset-0 bg-linear-to-t from-slate-950/30 via-transparent to-transparent" />
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, delay: 0.6, ease: EASE }}
-      className="absolute bottom-5 right-5 hidden sm:block"
-    >
-      <HeroChatCard />
-    </motion.div>
+    <ParallaxImage src="/images/hero.jpg" alt="Friends laughing together at a message on a phone" distance={24} className="object-[center_38%]" />
   </motion.div>
 )
 
-/* ─── Stats bar ───────────────────────────────────────────── */
-const STATS = [
-  { value: '<50ms', label: 'Message delivery' },
-  { value: 'Live', label: 'Online presence' },
-  { value: 'Unlimited', label: 'Message history' },
-  { value: '$0', label: 'Free forever' },
-]
-
-const StatsBar = () => (
-  <section className="border-y border-slate-200/70">
-    <div className="mx-auto grid max-w-[1360px] grid-cols-2 md:grid-cols-4">
-      {STATS.map(({ value, label }, i) => (
-        <div
-          key={label}
-          className={`px-6 py-10 text-center ${i % 2 === 1 ? 'border-l border-slate-200/70' : ''} ${i >= 2 ? 'border-t border-slate-200/70 md:border-t-0' : ''} ${i === 2 ? 'md:border-l' : ''}`}
-        >
-          <p className="text-3xl font-semibold tracking-tight text-slate-900">{value}</p>
-          <p className="mt-1 text-sm text-slate-500">{label}</p>
-        </div>
-      ))}
-    </div>
-  </section>
+/* ─── Features: pick a feature on the left, see it on the photo ─ */
+// The little UI card that floats over the photo for each feature
+const OverlayCard = ({ children, className = '' }) => (
+  <div className={`w-[300px] max-w-[calc(100vw-5rem)] rounded-2xl bg-white/95 p-4 shadow-2xl shadow-slate-950/25 ring-1 ring-slate-900/5 backdrop-blur-xl dark:bg-zinc-900/95 dark:shadow-black/60 dark:ring-white/10 ${className}`}>
+    {children}
+  </div>
 )
 
-/* ─── Features ────────────────────────────────────────────── */
+const Bubble = ({ me, children, className = '' }) => (
+  <div className={`w-fit max-w-[85%] rounded-2xl px-3 py-2 text-[13px] leading-snug ${
+    me ? 'ml-auto rounded-br-md bg-indigo-600 text-white' : 'rounded-bl-md bg-slate-100 text-slate-800 dark:bg-white/8 dark:text-zinc-100'
+  } ${className}`}>
+    {children}
+  </div>
+)
+
 const LIVE_CHAT = [
-  { me: false, n: 3, text: 'Did the build pass?' },
-  { me: true, text: 'Yep, all green. Shipping now.' },
-  { me: false, n: 3, text: 'Legend. Drinks on me tonight.' },
+  { me: false, text: 'Did the build pass?' },
+  { me: true, text: 'Yep, all green. Shipping now 🚀' },
+  { me: false, text: 'Legend. Drinks on me tonight.' },
 ]
 
 const LiveChatDemo = () => {
   const [count, setCount] = useState(1)
   useEffect(() => {
-    const t = setTimeout(() => setCount((c) => (c >= LIVE_CHAT.length + 1 ? 1 : c + 1)), 1600)
+    const t = setTimeout(() => setCount((c) => (c >= LIVE_CHAT.length ? 1 : c + 1)), 1400)
     return () => clearTimeout(t)
   }, [count])
-
   return (
-    <div className="flex h-full w-full max-w-md flex-col justify-end gap-2.5">
-      <AnimatePresence initial={false}>
-        {LIVE_CHAT.slice(0, count).map((m, i) => (
-          <motion.div
-            key={i}
-            layout
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35, ease: EASE }}
-            className={`flex items-end gap-2 ${m.me ? 'justify-end' : ''}`}
-          >
-            {!m.me && <Photo n={m.n} className="size-7" ring="" />}
-            <div className={`rounded-2xl px-3.5 py-2 text-[13px] ${m.me ? 'rounded-br-md bg-indigo-600 text-white' : 'rounded-bl-md bg-white text-slate-700 ring-1 ring-slate-200/80'}`}>
-              {m.text}
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-      <div className="mt-1 flex items-center gap-2 rounded-xl bg-white p-1.5 pl-3.5 text-[13px] text-slate-400 ring-1 ring-slate-200/80">
-        <span className="flex-1">Message Sofia…</span>
-        <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-white"><LuSendHorizontal className="size-4" /></span>
+    <OverlayCard>
+      <div className="mb-3 flex items-center gap-2.5 border-b border-slate-100 pb-3 dark:border-white/8">
+        <Photo n={3} className="size-8" online ring="" />
+        <div className="leading-tight">
+          <p className="text-[13px] font-semibold text-slate-900 dark:text-white">Sofia Martinez</p>
+          <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Online</p>
+        </div>
       </div>
-    </div>
+      <div className="flex h-32 flex-col justify-end gap-1.5">
+        <AnimatePresence initial={false}>
+          {LIVE_CHAT.slice(0, count).map((m, i) => (
+            <motion.div key={i} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: EASE }}>
+              <Bubble me={m.me}>{m.text}</Bubble>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </OverlayCard>
   )
 }
 
-// Card with a light preview panel on top and text below.
-const FeatureCard = ({ title, desc, className = '', delay = 0, children }) => (
-  <Reveal delay={delay} className={`flex flex-col rounded-3xl border border-slate-200/80 bg-white p-2 transition-shadow duration-300 hover:shadow-lg hover:shadow-slate-900/5 ${className}`}>
-    <div className="flex h-64 items-center justify-center overflow-hidden rounded-[1.25rem] bg-slate-50 p-6">{children}</div>
-    <div className="px-5 pb-5 pt-6">
-      <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{desc}</p>
-    </div>
-  </Reveal>
+const Waveform = ({ bars = 22 }) => (
+  <span className="flex h-5 items-center gap-0.75">
+    {Array.from({ length: bars }, (_, i) => (
+      <span key={i} className="w-0.75 rounded-full bg-white/80" style={{ height: `${30 + Math.abs(Math.sin(i * 1.7)) * 70}%` }} />
+    ))}
+  </span>
 )
 
-const ONLINE = [1, 3, 4, 6, 8]
-
-const Features = () => (
-  <section id="features" className="py-28">
-    <div className="mx-auto max-w-[1360px] px-5 sm:px-8 lg:px-10">
-      <Reveal className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-        <div className="max-w-2xl">
-          <Label>Features</Label>
-          <h2 className="mt-3 text-4xl font-semibold tracking-[-0.03em] text-slate-900 sm:text-5xl">
-            Everything a <Serif className="text-indigo-600">great chat</Serif> needs.
-          </h2>
+const SHOWCASE = [
+  {
+    Icon: LuMessagesSquare,
+    title: 'Real-time messaging',
+    desc: 'Messages arrive in milliseconds over WebSockets, with typing indicators and read receipts.',
+    visual: <LiveChatDemo />,
+  },
+  {
+    Icon: LuQrCode,
+    title: 'Add people your way',
+    desc: 'Send a request by @username, or share your QR code to connect instantly. Strangers can’t message you.',
+    visual: (
+      <OverlayCard className="flex items-center gap-4">
+        <div className="shrink-0 rounded-xl bg-white p-2 ring-1 ring-slate-200 dark:ring-0">
+          <QRCodeSVG value="https://nexchat.app/invite/welcome" size={96} level="M" marginSize={0} />
         </div>
-        <p className="max-w-sm text-slate-500">Fast, focused and built around the way you actually talk. No clutter, just conversation.</p>
-      </Reveal>
-
-      <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-        <FeatureCard
-          className="md:col-span-2"
-          title="Real-time messaging"
-          desc="Messages travel over WebSockets and arrive in milliseconds. No refreshing, no waiting."
-        >
-          <LiveChatDemo />
-        </FeatureCard>
-
-        <FeatureCard delay={0.06} title="Live presence" desc="See who's online right now, before you hit send.">
-          <div className="grid grid-cols-4 gap-4">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-              <div key={n} className="relative">
-                <img src={avatar(n)} alt="" loading="lazy" className={`size-12 rounded-full object-cover ring-2 ring-white ${ONLINE.includes(n) ? '' : 'opacity-40 grayscale'}`} />
-                {ONLINE.includes(n) && <span className="absolute bottom-0 right-0 size-3 rounded-full bg-emerald-500 ring-2 ring-white" />}
-              </div>
-            ))}
-          </div>
-        </FeatureCard>
-
-        <FeatureCard delay={0} title="Edit and delete" desc="Fix a typo or take a message back. Changes sync for everyone instantly.">
-          <div className="w-full max-w-[240px] space-y-2.5">
-            <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-white px-4 py-2 text-[13px] text-slate-400 line-through ring-1 ring-slate-200/80">Meet at 6?</div>
-            <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2 text-[13px] text-white">
-              Meet at 7? <span className="ml-1 text-[11px] text-indigo-200">edited</span>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200/80"><LuPencil className="size-3" /> Edit</span>
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 ring-1 ring-slate-200/80"><LuTrash2 className="size-3" /> Delete</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Sofia Martinez</p>
+          <p className="text-xs text-slate-500 dark:text-zinc-400">@sofia</p>
+          <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+            <LuCheck className="size-3" /> Added to contacts
+          </span>
+        </div>
+      </OverlayCard>
+    ),
+  },
+  {
+    Icon: LuUsers,
+    title: 'Live presence',
+    desc: 'See who’s online right now, and who’s typing, before you hit send.',
+    visual: (
+      <OverlayCard className="space-y-1">
+        {[[3, 'Sofia Martinez', 'typing…', true], [6, 'Liam Carter', 'Online', true], [8, 'Ava Patel', 'Last seen 2h ago', false], [4, 'Noah Kim', 'Online', true]].map(([n, name, status, on]) => (
+          <div key={name} className="flex items-center gap-3 rounded-xl px-1.5 py-1.5">
+            <Photo n={n} className={`size-9 ${on ? '' : 'opacity-50 grayscale'}`} online={on} ring="" />
+            <div className="leading-tight">
+              <p className="text-[13px] font-medium text-slate-900 dark:text-white">{name}</p>
+              <p className={`text-[11px] ${status === 'typing…' ? 'text-indigo-600 dark:text-indigo-400' : on ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>{status}</p>
             </div>
           </div>
-        </FeatureCard>
+        ))}
+      </OverlayCard>
+    ),
+  },
+  {
+    Icon: LuSmile,
+    title: 'Photos, voice and reactions',
+    desc: 'Share pictures, files and voice notes, and react to anything with any emoji.',
+    visual: (
+      <OverlayCard className="space-y-2.5">
+        <div className="relative w-fit">
+          <Bubble>Pizza tonight? 🍕</Bubble>
+          <span className="absolute -bottom-2.5 left-2 rounded-full bg-white px-1.5 py-px text-[11px] shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-white/10">❤️ 😂 3</span>
+        </div>
+        <div className="!mt-5 ml-auto flex w-fit items-center gap-2.5 rounded-2xl rounded-br-md bg-indigo-600 py-2 pl-2 pr-3 text-white">
+          <span className="flex size-7 items-center justify-center rounded-full bg-white/20"><LuPlay className="ml-0.5 size-3.5" /></span>
+          <Waveform />
+          <span className="text-[11px] tabular-nums text-indigo-100">0:09</span>
+        </div>
+        <div className="flex w-fit items-center gap-2.5 rounded-2xl rounded-bl-md bg-slate-100 p-2 pr-3.5 dark:bg-white/8">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-white text-indigo-600 dark:bg-zinc-800 dark:text-indigo-400"><LuFileText className="size-4" /></span>
+          <div className="leading-tight">
+            <p className="text-[13px] font-medium text-slate-900 dark:text-white">Trip-plan.pdf</p>
+            <p className="text-[11px] text-slate-400">1.2 MB</p>
+          </div>
+        </div>
+      </OverlayCard>
+    ),
+  },
+  {
+    Icon: LuPencil,
+    title: 'Edit, delete, forward',
+    desc: 'Fix a typo, take a message back, or pass it on. Everyone stays in sync.',
+    visual: (
+      <OverlayCard className="space-y-2">
+        <Bubble me className="line-through opacity-50">Meet at 6?</Bubble>
+        <Bubble me>Meet at 7? <span className="ml-1 text-[11px] text-indigo-200">edited</span></Bubble>
+        <div className="flex justify-end gap-1.5 pt-1.5">
+          {[[LuPencil, 'Edit', ''], [LuForward, 'Forward', ''], [LuTrash2, 'Delete', 'text-red-600 dark:text-red-400']].map(([Icon, label, cls]) => (
+            <span key={label} className={`inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 dark:bg-white/8 dark:text-zinc-200 ${cls}`}><Icon className="size-3" />{label}</span>
+          ))}
+        </div>
+      </OverlayCard>
+    ),
+  },
+  {
+    Icon: LuShieldCheck,
+    title: 'Private by default',
+    desc: 'Only your contacts can reach you. Secure sessions and hashed passwords keep your account safe.',
+    visual: (
+      <OverlayCard className="space-y-1.5">
+        {[[LuUserPlus, 'Contacts only'], [LuCookie, 'HTTP-only cookies'], [LuFingerprint, 'Hashed passwords']].map(([Icon, label]) => (
+          <div key={label} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-[13px] font-medium text-slate-700 dark:bg-white/5 dark:text-zinc-200">
+            <Icon className="size-4 text-indigo-600 dark:text-indigo-400" /> {label}
+            <LuCheck className="ml-auto size-4 text-emerald-500" />
+          </div>
+        ))}
+      </OverlayCard>
+    ),
+  },
+]
 
-        <FeatureCard delay={0.06} title="Instant search" desc="Find anyone in your contacts as you type.">
-          <div className="w-full max-w-[280px] rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-200/80">
-            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900">
-              <LuSearch className="size-4 text-slate-400" /> So<span className="-ml-1.5 h-4 w-px animate-pulse bg-indigo-600" />
+const ROTATE_MS = 5000
+
+const Features = () => {
+  const [active, setActive] = useState(0)
+  const [paused, setPaused] = useState(false)
+
+  // Move to the next feature every few seconds, unless the visitor is hovering the list
+  useEffect(() => {
+    if (paused) return
+    const t = setTimeout(() => setActive((a) => (a + 1) % SHOWCASE.length), ROTATE_MS)
+    return () => clearTimeout(t)
+  }, [active, paused])
+
+  return (
+    <section id="features" className="py-28">
+      <div className="mx-auto max-w-[1360px] px-5 sm:px-8 lg:px-10">
+        <Reveal className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+          <div className="max-w-2xl">
+            <Label>Features</Label>
+            <h2 className="mt-3 text-4xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-white sm:text-5xl">
+              Everything a <Serif className="text-indigo-600 dark:text-indigo-400">great chat</Serif> needs.
+            </h2>
+          </div>
+          <p className="max-w-sm text-slate-500 dark:text-zinc-400">Fast, focused and built around the way you actually talk. No clutter, just conversation.</p>
+        </Reveal>
+
+        <Reveal className="mt-14 grid items-center gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-14">
+          {/* Feature list */}
+          <div className="order-2 lg:order-1" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+            {SHOWCASE.map(({ Icon, title, desc }, i) => {
+              const on = i === active
+              return (
+                <button
+                  key={title}
+                  onClick={() => setActive(i)}
+                  aria-pressed={on}
+                  className={`relative block w-full border-l-2 py-3.5 pl-5 text-left transition-colors ${
+                    on ? 'border-indigo-600 dark:border-indigo-400' : 'border-slate-200 hover:border-slate-300 dark:border-white/10 dark:hover:border-white/20'
+                  }`}
+                >
+                  <span className={`flex items-center gap-3 text-[15px] font-semibold transition-colors ${on ? 'text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'}`}>
+                    <Icon className={`size-4.5 ${on ? 'text-indigo-600 dark:text-indigo-400' : ''}`} />
+                    {title}
+                  </span>
+                  <AnimatePresence initial={false}>
+                    {on && (
+                      <motion.p
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        className="overflow-hidden pl-7.5 text-sm leading-relaxed text-slate-500 dark:text-zinc-400"
+                      >
+                        <span className="block pt-1.5">{desc}</span>
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                  {/* progress until the next feature */}
+                  {on && !paused && (
+                    <motion.span
+                      key={`p${active}`}
+                      initial={{ scaleY: 0 }}
+                      animate={{ scaleY: 1 }}
+                      transition={{ duration: ROTATE_MS / 1000, ease: 'linear' }}
+                      className="absolute -left-0.5 top-0 h-full w-0.5 origin-top bg-indigo-300 dark:bg-indigo-300/60"
+                    />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Photo with the matching UI on top */}
+          <div className="relative order-1 aspect-[4/3] overflow-hidden rounded-[1.75rem] ring-1 ring-slate-900/5 lg:order-2 lg:aspect-[5/4] dark:ring-white/10">
+            <ParallaxImage src="/images/auth-login.jpg" alt="Friends chatting around a café table" distance={24} />
+            <div className="absolute inset-0 bg-linear-to-t from-slate-950/50 via-slate-950/10 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 flex justify-center p-5 sm:justify-start sm:p-8">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={active}
+                  initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                  transition={{ duration: 0.35, ease: EASE }}
+                >
+                  {SHOWCASE[active].visual}
+                </motion.div>
+              </AnimatePresence>
             </div>
-            {[[3, 'Sofia Martinez', 'Online'], [5, 'Sophie Laurent', 'Last seen 2h ago']].map(([n, name, status], i) => (
-              <div key={name} className={`mt-1 flex items-center gap-3 rounded-xl px-2.5 py-2 ${i === 0 ? 'bg-indigo-50' : ''}`}>
-                <Photo n={n} className="size-8" online={i === 0} ring="" />
-                <div>
-                  <p className="text-[13px] font-medium text-slate-900"><span className="text-indigo-600">So</span>{name.slice(2)}</p>
-                  <p className="text-[11px] text-slate-400">{status}</p>
-                </div>
-              </div>
-            ))}
           </div>
-        </FeatureCard>
-
-        <FeatureCard delay={0.12} title="Private by default" desc="Secure sessions and hashed passwords keep your account safe.">
-          <div className="w-full max-w-[260px] space-y-2">
-            {[[LuKeyRound, 'JWT authentication'], [LuCookie, 'HTTP-only cookies'], [LuFingerprint, 'Hashed passwords']].map(([Icon, label]) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 text-[13px] font-medium text-slate-700 ring-1 ring-slate-200/80">
-                <Icon className="size-4 text-indigo-600" /> {label}
-                <LuCheck className="ml-auto size-4 text-emerald-600" />
-              </div>
-            ))}
-          </div>
-        </FeatureCard>
+        </Reveal>
       </div>
-    </div>
-  </section>
-)
+    </section>
+  )
+}
 
 /* ─── Use cases with photos ───────────────────────────────── */
 const USE_CASES = [
@@ -294,16 +330,16 @@ const USE_CASES = [
 ]
 
 const UseCases = () => (
-  <section id="use-cases" className="bg-slate-50 py-28">
+  <section id="use-cases" className="bg-slate-50 py-28 dark:border-y dark:border-white/6 dark:bg-white/2">
     <div className="mx-auto max-w-[1360px] px-5 sm:px-8">
       <Reveal className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
         <div className="max-w-xl">
           <Label>For everyone</Label>
-          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.03em] text-slate-900 sm:text-5xl">
-            Made for the people <Serif className="text-indigo-600">you talk to most.</Serif>
+          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-white sm:text-5xl">
+            Made for the people <Serif className="text-indigo-600 dark:text-indigo-400">you talk to most.</Serif>
           </h2>
         </div>
-        <p className="max-w-sm text-slate-500">Whether it's two people or a whole crew, NexChat keeps everyone in the same conversation.</p>
+        <p className="max-w-sm text-slate-500 dark:text-zinc-400">Whether it's two people or a whole crew, NexChat keeps everyone in the same conversation.</p>
       </Reveal>
 
       <div className="mt-14 grid gap-5 md:grid-cols-3">
@@ -329,8 +365,8 @@ const UseCases = () => (
 
 /* ─── How it works ────────────────────────────────────────── */
 const STEPS = [
-  { Icon: LuUserPlus, title: 'Create your account', desc: 'Just a name, email and password. Done in 30 seconds.' },
-  { Icon: LuSearch, title: 'Find your people', desc: 'Search contacts instantly and see who is online right now.' },
+  { Icon: LuUserPlus, title: 'Create your account', desc: 'Pick a name and a username. Done in 30 seconds.' },
+  { Icon: LuQrCode, title: 'Add your people', desc: 'Send a request by username, or share your QR code to connect instantly.' },
   { Icon: LuMessagesSquare, title: 'Start talking', desc: 'Send, edit and delete messages in real time.' },
 ]
 
@@ -339,22 +375,22 @@ const HowItWorks = () => (
     <div className="mx-auto max-w-[1360px] px-5 sm:px-8">
       <Reveal className="mx-auto max-w-2xl text-center">
         <Label>How it works</Label>
-        <h2 className="mt-5 text-4xl font-semibold tracking-[-0.03em] text-slate-900 sm:text-5xl">
-          From sign-up to <Serif className="text-indigo-600">hello</Serif> in a minute.
+        <h2 className="mt-5 text-4xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-white sm:text-5xl">
+          From sign-up to <Serif className="text-indigo-600 dark:text-indigo-400">hello</Serif> in a minute.
         </h2>
       </Reveal>
       <div className="mt-16 grid gap-5 md:grid-cols-3">
         {STEPS.map(({ Icon, title, desc }, i) => (
           <Reveal key={title} delay={i * 0.1}>
-            <div className="group h-full rounded-[1.75rem] border border-slate-200/80 bg-white p-8 transition duration-300 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-900/5">
+            <div className="group h-full rounded-[1.75rem] border border-slate-200/80 bg-white p-8 dark:border-white/8 dark:bg-white/3 transition duration-300 hover:-translate-y-1 hover:border-indigo-200 dark:hover:border-indigo-500/40 hover:shadow-xl hover:shadow-indigo-900/5 dark:hover:shadow-black/40">
               <div className="flex items-center justify-between">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-slate-950 text-white transition group-hover:bg-indigo-600">
+                <div className="flex size-12 items-center justify-center rounded-2xl bg-slate-950 text-white transition group-hover:bg-indigo-600 dark:bg-white/10">
                   <Icon className="size-5" />
                 </div>
-                <span className="font-display text-5xl italic text-slate-200 transition group-hover:text-indigo-200">0{i + 1}</span>
+                <span className="font-display text-5xl italic text-slate-200 dark:text-zinc-800 transition group-hover:text-indigo-200 dark:group-hover:text-indigo-500/50">0{i + 1}</span>
               </div>
-              <h3 className="mt-8 text-lg font-semibold text-slate-900">{title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-500">{desc}</p>
+              <h3 className="mt-8 text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-zinc-400">{desc}</p>
             </div>
           </Reveal>
         ))}
@@ -405,7 +441,7 @@ const GITHUB_PROFILE = 'https://github.com/Arjun-SN04'
 const GITHUB_REPO = 'https://github.com/Arjun-SN04/NexChat'
 
 const FooterLink = ({ href, to, children, external = false }) => {
-  const cls = 'group inline-flex items-center gap-1 text-sm text-slate-500 transition-colors hover:text-slate-900'
+  const cls = 'group inline-flex items-center gap-1 text-sm text-slate-500 dark:text-zinc-400 transition-colors hover:text-slate-900 dark:hover:text-white'
   if (to) return <Link to={to} className={cls}>{children}</Link>
   return (
     <a href={href} className={cls} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
@@ -442,19 +478,19 @@ const Footer = ({ loggedIn }) => {
   ]
 
   return (
-    <footer className="border-t border-slate-200/70 bg-white">
+    <footer className="border-t border-slate-200/70 bg-white dark:border-white/8 dark:bg-zinc-950">
       <div className="mx-auto max-w-[1360px] px-5 sm:px-8 lg:px-10">
         <div className="grid gap-12 py-16 lg:grid-cols-[1.6fr_3fr]">
           <div className="max-w-xs">
             <Logo />
-            <p className="mt-4 text-sm leading-relaxed text-slate-500">
+            <p className="mt-4 text-sm leading-relaxed text-slate-500 dark:text-zinc-400">
               A clean, fast, real-time messenger for friends, teams and everyone in between.
             </p>
             <a
               href={GITHUB_REPO}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-6 inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="mt-6 inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-white/20 hover:bg-slate-50 dark:hover:bg-white/5"
             >
               <FaGithub className="size-4" /> View on GitHub
             </a>
@@ -463,7 +499,7 @@ const Footer = ({ loggedIn }) => {
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
           {columns.map(({ title, links }) => (
             <div key={title}>
-              <p className="text-sm font-semibold text-slate-900">{title}</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
               <ul className="mt-5 space-y-3.5">
                 {links.map((l) => (
                   <li key={l.label}><FooterLink {...l}>{l.label}</FooterLink></li>
@@ -474,11 +510,11 @@ const Footer = ({ loggedIn }) => {
           </div>
         </div>
 
-        <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200/70 py-8 sm:flex-row">
-          <p className="text-sm text-slate-500">© {new Date().getFullYear()} NexChat. All rights reserved.</p>
-          <p className="text-sm text-slate-500">
+        <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200/70 dark:border-white/8 py-8 sm:flex-row">
+          <p className="text-sm text-slate-500 dark:text-zinc-400">© {new Date().getFullYear()} NexChat. All rights reserved.</p>
+          <p className="text-sm text-slate-500 dark:text-zinc-400">
             Made by{' '}
-            <a href={GITHUB_PROFILE} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-900 underline-offset-4 hover:text-indigo-600 hover:underline">
+            <a href={GITHUB_PROFILE} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-900 dark:text-white underline-offset-4 hover:text-indigo-600 hover:underline">
               Arjun
             </a>
           </p>
@@ -490,7 +526,9 @@ const Footer = ({ loggedIn }) => {
 
 /* ─── Page ────────────────────────────────────────────────── */
 const HomePage = () => {
+  useThemeClass()
   usePageTitle(null)
+  const { dark, toggle } = useTheme()
   const [AuthUser] = useAuth()
   const [scrolled, setScrolled] = useState(false)
 
@@ -511,20 +549,28 @@ const HomePage = () => {
   const cta = AuthUser ? { to: '/', label: 'Open NexChat' } : { to: '/signup', label: 'Get started for free' }
 
   return (
-    <div className="min-h-dvh overflow-x-clip bg-white text-slate-900">
+    <div className="min-h-dvh overflow-x-clip bg-white text-slate-900 dark:bg-zinc-950 dark:text-white">
       {/* Floating nav */}
       <div className="fixed inset-x-0 top-0 z-50 px-4 pt-4">
         <nav
           className={`mx-auto flex h-14 max-w-[1400px] items-center justify-between rounded-full border pl-5 pr-2 transition-all duration-300 ${
-            scrolled ? 'border-slate-200/70 bg-white/75 shadow-lg shadow-slate-900/5 backdrop-blur-xl' : 'border-transparent'
+            scrolled ? 'border-slate-200/70 dark:border-white/8 bg-white/75 dark:bg-zinc-950/75 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:shadow-black/30' : 'border-transparent'
           }`}
         >
           <Logo />
-          <div className="hidden items-center gap-1 text-sm text-slate-600 md:flex">
-            <a href="#features" className="rounded-full px-4 py-2 transition hover:bg-slate-100 hover:text-slate-900">Features</a>
-            <a href="#how-it-works" className="rounded-full px-4 py-2 transition hover:bg-slate-100 hover:text-slate-900">How it works</a>
+          <div className="hidden items-center gap-1 text-sm text-slate-600 dark:text-zinc-300 md:flex">
+            <a href="#features" className="rounded-full px-4 py-2 transition hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white">Features</a>
+            <a href="#how-it-works" className="rounded-full px-4 py-2 transition hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white">How it works</a>
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={toggle}
+              aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={dark ? 'Light mode' : 'Dark mode'}
+              className="flex size-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+            >
+              {dark ? <LuSun className="size-4.5" /> : <LuMoon className="size-4.5" />}
+            </button>
             {AuthUser ? (
               <Button to="/" size="sm" rightIcon={LuArrowUpRight} className="h-10 rounded-full px-4">Open app</Button>
             ) : (
@@ -538,21 +584,29 @@ const HomePage = () => {
       </div>
 
       {/* Hero */}
-      <header className="relative isolate flex items-center pt-28 pb-16 lg:min-h-dvh lg:pt-24 lg:pb-8">
-        <HeroBackground />
-        <div className="mx-auto grid w-full max-w-[1360px] items-center gap-12 px-5 sm:px-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:px-10">
+      <header className="pb-4 pt-32 sm:pt-40">
+        <div className="mx-auto w-full max-w-[1360px] px-5 sm:px-8 lg:px-10">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: EASE }}
+            className="mx-auto max-w-3xl text-center"
           >
-            <h1 className="text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-slate-900 sm:text-[60px] xl:text-[72px]">
-              Talk to your people, <Serif className="text-indigo-600">instantly.</Serif>
+            <a
+              href="#features"
+              className="group inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 py-1 pl-1 pr-3 text-[13px] text-slate-600 backdrop-blur transition hover:border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:border-white/20"
+            >
+              <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white">New</span>
+              Add friends with a QR code
+              <LuArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            </a>
+            <h1 className="mt-7 text-[44px] font-semibold leading-[1.02] tracking-[-0.045em] text-slate-900 sm:text-[64px] xl:text-[80px] dark:text-white">
+              Talk to your people, <Serif className="text-indigo-600 dark:text-indigo-400">instantly.</Serif>
             </h1>
-            <p className="mt-6 max-w-md text-lg leading-relaxed text-slate-500">
-              A simple, fast messenger with live presence, message editing and instant search.
+            <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-slate-500 dark:text-zinc-400">
+              A fast, private messenger. Add friends by username or QR code, share photos and voice notes, and see replies the moment they land.
             </p>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
               <Button to={cta.to} size="lg" rightIcon={LuArrowRight} className="rounded-full px-7">{cta.label}</Button>
               {!AuthUser && <Button to="/login" variant="secondary" size="lg" className="rounded-full px-7">Sign in</Button>}
             </div>
@@ -560,25 +614,23 @@ const HomePage = () => {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4, ease: EASE }}
-              className="mt-10 flex items-center gap-4"
+              className="mt-8 flex items-center justify-center gap-3"
             >
-              <div className="flex -space-x-3">
+              <div className="flex -space-x-2.5">
                 {[1, 2, 3, 4, 5].map((n) => (
-                  <img key={n} src={avatar(n)} alt="" className="size-8 rounded-full object-cover ring-[3px] ring-white sm:size-10" />
+                  <img key={n} src={avatar(n)} alt="" className="size-8 rounded-full object-cover ring-[3px] ring-white dark:ring-zinc-950" />
                 ))}
               </div>
-              <div className="text-sm leading-snug">
-                <p className="font-semibold text-slate-900">Free for everyone</p>
-                <p className="text-slate-500">Friends, teams and study groups</p>
-              </div>
+              <p className="text-left text-sm leading-snug text-slate-500 dark:text-zinc-400">
+                <span className="font-semibold text-slate-900 dark:text-white">Free for everyone.</span> Friends, teams and study groups.
+              </p>
             </motion.div>
           </motion.div>
 
-          <HeroVisual />
+          <HeroPhoto />
         </div>
       </header>
 
-      <StatsBar />
       <Features />
       <UseCases />
       <HowItWorks />
