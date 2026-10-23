@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto"
 import User from "../models/user.model.js"
 import { Group } from "../models/group.model.js"
 import { ScheduledMessage } from "../models/scheduledMessage.model.js"
@@ -66,6 +67,21 @@ export const NEXA_TOOLS = [
           count: { type: "integer", description: "How many recent messages (max 60)" },
         },
         required: ["recipient_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_image",
+      description: "Create a picture from a text description (drawings, photos, art, logos, wallpapers). The image appears in this chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "A detailed English description of the image: subject, setting, style, lighting, colors. Expand short requests into a vivid prompt." },
+          shape: { type: "string", enum: ["square", "portrait", "landscape"], description: "Image shape. Default square." },
+        },
+        required: ["prompt"],
       },
     },
   },
@@ -171,6 +187,17 @@ export const runNexaTool = async (name, args, ctx) => {
       const chat = await readChat(me, to.chatId, { count: Number(args.count) || 30, timeZone: ctx.timeZone })
       if (!chat) return { result: { error: "You can't read that chat" } }
       return { result: { chat: to.name, messages: chat.lines } }
+    }
+
+    // The chat card then asks POST /api/ai/messages/:id/image to draw it (utils/imageGen.js)
+    case "generate_image": {
+      const prompt = String(args.prompt || "").trim().slice(0, 1000)
+      if (!prompt) return { result: { error: "Describe the image" } }
+      const shape = ["square", "portrait", "landscape"].includes(args.shape) ? args.shape : "square"
+      return {
+        result: { ok: true, note: "The image is being drawn in the chat now. Reply with one short line, don't describe the prompt." },
+        action: { type: "image", id: randomUUID(), prompt, shape },
+      }
     }
 
     default:

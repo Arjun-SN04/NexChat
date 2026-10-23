@@ -64,10 +64,23 @@ export const GroupAvatar = ({ name, size = 'md', announcement = false, community
 }
 
 // NexChat AI's picture
-export const AiAvatar = ({ size = 'md' }) => (
-  <div className={`flex shrink-0 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white ${SIZES[size]}`}>
-    <LuSparkles className={ICON_SIZES[size]} />
-  </div>
-)
+export const AiAvatar = ({ size = 'md', className = '' }) => {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div className={`flex shrink-0 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white ${SIZES[size]} ${className}`}>
+        <LuSparkles className={ICON_SIZES[size]} />
+      </div>
+    )
+  }
+  return (
+    <img
+      src="/images/nexa-avatar.jpg"
+      alt="Nexa AI"
+      onError={() => setFailed(true)}
+      className={`shrink-0 rounded-full object-cover ring-1 ring-slate-800/10 shadow-xs dark:ring-white/10 ${SIZES[size]} ${className}`}
+    />
+  )
+}
 
 export default Avatar

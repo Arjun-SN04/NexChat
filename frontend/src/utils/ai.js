@@ -4,4 +4,5 @@ export const AI_CHAT = {
   isAi: true,
   fullName: 'Nexa',
   username: 'ai',
+  profilePic: '/images/nexa-avatar.jpg',
 }

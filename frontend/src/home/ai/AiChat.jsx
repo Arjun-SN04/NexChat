@@ -1,14 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AnimatePresence, motion } from 'motion/react'
-import { LuArrowLeft, LuBellRing, LuCheck, LuCircleAlert, LuClock, LuCopy, LuLanguages, LuLifeBuoy, LuListChecks, LuMessageCircle, LuNewspaper, LuPenLine, LuSend, LuSendHorizontal, LuSparkles, LuTrash2, LuX } from 'react-icons/lu'
+import { LuArrowLeft, LuBellRing, LuCheck, LuCircleAlert, LuClock, LuCopy, LuGlobe, LuImage, LuLanguages, LuLifeBuoy, LuListChecks, LuMessageCircle, LuNewspaper, LuPenLine, LuSend, LuSendHorizontal, LuSparkles, LuTrash2, LuX } from 'react-icons/lu'
 import { selfContact } from '../../utils/conversations'
 import useConversation from '../../Zustand/UserConversation'
 import { useAuth } from '../../context/AuthProvider'
 import { AiAvatar } from '../Avatar'
 import ConfirmDialog from '../ConfirmDialog'
+import Mermaid from './Mermaid'
+import NexaImage from './NexaImage'
 
 const api = { withCredentials: true }
 const MAX_HEIGHT = 140
@@ -20,6 +22,8 @@ const CAPABILITIES = [
   { Icon: LuClock, title: 'Schedule messages', example: 'Wish Priya happy birthday tomorrow at 9am' },
   { Icon: LuListChecks, title: 'Manage scheduled', example: 'What do I have scheduled?' },
   { Icon: LuNewspaper, title: 'Catch up on a chat', example: 'Summarize my chat with Arjun' },
+  { Icon: LuGlobe, title: 'Search the web', example: "What's today's top news?" },
+  { Icon: LuImage, title: 'Create images', example: 'Draw a cozy cabin in the snow at night' },
   { Icon: LuPenLine, title: 'Write and rewrite', example: 'Make this more professional: ' },
   { Icon: LuLanguages, title: 'Translate', example: "Translate 'see you soon' to Hindi" },
   { Icon: LuLifeBuoy, title: 'NexChat help', example: 'How do communities work?' },
@@ -62,11 +66,39 @@ const formatWhen = (date) => new Date(date).toLocaleString([], { weekday: 'short
 
 const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+// Language names for the code block header
+const LANGS = { js: 'JavaScript', javascript: 'JavaScript', jsx: 'JSX', ts: 'TypeScript', typescript: 'TypeScript', python: 'Python', c: 'C', shell: 'Shell', tsx: 'TSX', py: 'Python', csharp: 'C#', cs: 'C#', cpp: 'C++', sh: 'Shell', bash: 'Bash', html: 'HTML', css: 'CSS', json: 'JSON', sql: 'SQL', java: 'Java', go: 'Go', rust: 'Rust', php: 'PHP', ruby: 'Ruby', kotlin: 'Kotlin', swift: 'Swift', yaml: 'YAML', xml: 'XML' }
+
+// A code block with its file name (or language) and a Copy button, so each file can be copied on its own.
+// File name comes from the fence: ```csharp FactionManager.cs
+const CodeBlock = ({ node, children }) => {
+  const [copied, setCopied] = useState(false)
+  const lang = (node.properties?.className || []).find((c) => String(c).startsWith('language-'))?.slice(9) || ''
+  const file = String(node.data?.meta || '').match(/[\w./-]+\.\w+/)?.[0]
+  const label = file || LANGS[lang.toLowerCase()] || lang || 'Code'
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(textOf(node).replace(/\n$/, '')); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
+  }
+  return (
+    <div className="my-2 overflow-hidden rounded-lg bg-slate-900 ring-1 ring-slate-800 first:mt-0 last:mb-0 dark:bg-black/40 dark:ring-slate-700/60">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-300" title={label}>{label}</span>
+        <button type="button" onClick={copy} className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white" aria-label={`Copy ${label}`}>
+          {copied ? <LuCheck className="size-3" /> : <LuCopy className="size-3" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-3 text-xs leading-relaxed text-slate-100">{children}</pre>
+    </div>
+  )
+}
+
 // Nexa's Markdown, sized to sit inside a normal chat bubble
 const md = {
   p: (props) => <p className="my-1.5 first:mt-0 last:mb-0" {...props} />,
-  ul: (props) => <ul className="my-1.5 list-disc space-y-0.5 pl-4 first:mt-0 last:mb-0" {...props} />,
-  ol: (props) => <ol className="my-1.5 list-decimal space-y-0.5 pl-4 first:mt-0 last:mb-0" {...props} />,
+  // [&_li>p]:my-0: no big gaps when the bullets come with blank lines between them
+  ul: (props) => <ul className="my-1.5 list-disc space-y-0.5 pl-4 first:mt-0 last:mb-0 [&_li>p]:my-0 [&_li>p:last-of-type]:inline" {...props} />,
+  ol: (props) => <ol className="my-1.5 list-decimal space-y-0.5 pl-4 first:mt-0 last:mb-0 [&_li>p]:my-0 [&_li>p:last-of-type]:inline" {...props} />,
   h1: (props) => <p className="my-1.5 font-semibold first:mt-0" {...props} />,
   h2: (props) => <p className="my-1.5 font-semibold first:mt-0" {...props} />,
   h3: (props) => <p className="my-1.5 font-semibold first:mt-0" {...props} />,
@@ -74,7 +106,15 @@ const md = {
   a: (props) => <a className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400" target="_blank" rel="noreferrer" {...props} />,
   blockquote: (props) => <blockquote className="my-1.5 border-l-2 border-slate-300 pl-2.5 text-slate-600 dark:border-slate-600 dark:text-slate-300" {...props} />,
   hr: () => <hr className="my-2 border-slate-200 dark:border-slate-700" />,
-  pre: (props) => <pre className="my-1.5 overflow-x-auto rounded-lg bg-slate-900 p-2.5 text-xs leading-relaxed text-slate-100 dark:bg-black/40" {...props} />,
+  pre: ({ node, ...props }) => {
+    // ```mermaid blocks become diagrams
+    const code = node?.children?.[0]
+    if (code?.tagName === 'code' && code.properties?.className?.includes('language-mermaid')) {
+      return <Mermaid code={textOf(code).trim()} />
+    }
+    if (code?.tagName === 'code') return <CodeBlock node={code}>{props.children}</CodeBlock>
+    return <pre className="my-1.5 overflow-x-auto rounded-lg bg-slate-900 p-2.5 text-xs leading-relaxed text-slate-100 dark:bg-black/40" {...props} />
+  },
   code: ({ className, children, ...props }) =>
     className
       ? <code className={className} {...props}>{children}</code>
@@ -84,8 +124,40 @@ const md = {
   td: (props) => <td className="border-b border-slate-100 px-2 py-1 align-top dark:border-slate-800" {...props} />,
 }
 
+// Plain text of a Markdown node, leaving out nested lists
+const textOf = (node) => {
+  if (!node) return ''
+  if (node.type === 'text') return node.value
+  if (node.tagName === 'ul' || node.tagName === 'ol') return ''
+  return (node.children || []).map(textOf).join('')
+}
+
+// A list item with a "Know more" button that asks Nexa about that point
+const listItem = (onAsk) => {
+  const Item = ({ node, children, ...props }) => {
+    const topic = textOf(node).replace(/\s+/g, ' ').trim()
+    const nested = node?.children?.some((c) => c.tagName === 'ul' || c.tagName === 'ol')
+    if (!onAsk || !topic || nested) return <li {...props}>{children}</li>
+    return (
+      <li className="group/li" {...props}>
+        {children}
+        <button
+          type="button"
+          onClick={() => onAsk(`Tell me more about: "${topic}"`)}
+          className="ml-1.5 inline-flex -translate-y-px items-center gap-0.5 rounded-full px-1.5 py-px align-middle text-[11px] font-medium text-violet-600 opacity-0 ring-1 ring-violet-200 transition hover:bg-violet-50 focus:opacity-100 group-hover/li:opacity-100 pointer-coarse:opacity-100 dark:text-violet-300 dark:ring-violet-500/30 dark:hover:bg-violet-500/10"
+          title="Ask Nexa about this"
+        >
+          <LuSparkles className="size-3" /> Know more
+        </button>
+      </li>
+    )
+  }
+  return Item
+}
+
 // Same sizes as normal chat bubbles
 const bubbleWidth = 'max-w-[80%] sm:max-w-[70%] lg:max-w-[min(60%,640px)]'
+const wideBubbleWidth = 'w-full max-w-[90%] sm:max-w-[85%] lg:max-w-[min(80%,820px)]'
 
 const Thinking = () => (
   <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mb-3 flex items-end gap-2">
@@ -134,7 +206,27 @@ const ActionCard = ({ action, status, onCancel, onOpen }) => {
   )
 }
 
-const NexaBubble = ({ message, statuses, onCancel, onOpen, onPick }) => {
+// Web pages Nexa searched, as small link chips
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
+const Sources = ({ items }) => (
+  <div className="mt-1.5 flex max-w-full flex-wrap gap-1.5">
+    {items.map((s) => (
+      <a
+        key={s.url}
+        href={s.url}
+        target="_blank"
+        rel="noreferrer"
+        title={s.title}
+        className="inline-flex max-w-56 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200 transition hover:bg-violet-50 hover:text-violet-700 hover:ring-violet-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
+      >
+        <LuGlobe className="size-3 shrink-0" />
+        <span className="truncate">{hostOf(s.url)}</span>
+      </a>
+    ))}
+  </div>
+)
+
+const NexaBubble = ({ message, statuses, onCancel, onOpen, onPick, onAsk, onImageSaved }) => {
   if (message.actions?.some((a) => a.type === 'capabilities')) {
     return (
       <div className="mb-3 flex items-end gap-2 pb-1">
@@ -146,23 +238,29 @@ const NexaBubble = ({ message, statuses, onCancel, onOpen, onPick }) => {
       </div>
     )
   }
-  return <NexaAnswer message={message} statuses={statuses} onCancel={onCancel} onOpen={onOpen} />
+  return <NexaAnswer message={message} statuses={statuses} onCancel={onCancel} onOpen={onOpen} onAsk={onAsk} onImageSaved={onImageSaved} />
 }
 
-const NexaAnswer = ({ message, statuses, onCancel, onOpen }) => {
+const NexaAnswer = ({ message, statuses, onCancel, onOpen, onAsk, onImageSaved }) => {
   const [copied, setCopied] = useState(false)
+  const components = useMemo(() => ({ ...md, li: listItem(onAsk) }), [onAsk])
+  // Diagrams and tables get a wider bubble
+  const wide = /```mermaid|^\s*\|.*\|\s*$/m.test(message.content || '')
   const copy = async () => {
     try { await navigator.clipboard.writeText(message.content); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
   }
   return (
     <div className="group mb-3 flex items-end gap-2 pb-1">
       <AiAvatar size="xs" />
-      <div className={`flex flex-col items-start ${bubbleWidth}`}>
-        <div className="rounded-2xl rounded-bl-md bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-800 shadow-xs ring-1 ring-slate-200/80 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700/60">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={md}>{message.content}</ReactMarkdown>
+      <div className={`flex min-w-0 flex-col items-start ${wide ? wideBubbleWidth : bubbleWidth}`}>
+        <div className="max-w-full rounded-2xl rounded-bl-md bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-800 shadow-xs ring-1 ring-slate-200/80 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700/60">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{message.content}</ReactMarkdown>
         </div>
-        {(message.actions || []).map((a, i) => (
-          <ActionCard key={i} action={a} status={a.id ? statuses[a.id] : null} onCancel={onCancel} onOpen={onOpen} />
+        {(message.actions || []).map((a, i) => (a.type === 'image'
+          ? <NexaImage key={a.id || i} messageId={message._id} action={a} fresh={isFresh(message)} onSaved={onImageSaved} />
+          : a.type === 'sources'
+            ? <Sources key={i} items={a.items || []} />
+            : <ActionCard key={i} action={a} status={a.id ? statuses[a.id] : null} onCancel={onCancel} onOpen={onOpen} />
         ))}
         <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-slate-400">
           {message.createdAt && formatTime(message.createdAt)}
@@ -175,6 +273,9 @@ const NexaAnswer = ({ message, statuses, onCancel, onOpen }) => {
     </div>
   )
 }
+
+// Answers from the last couple of minutes (older unfinished images wait for a click)
+const isFresh = (message) => Date.now() - new Date(message.createdAt).getTime() < 2 * 60 * 1000
 
 const MyBubble = ({ message }) => (
   <div className="mb-3 flex justify-end pb-1">
@@ -268,6 +369,18 @@ const AiChat = () => {
     }
   }
 
+  // Stable handle for "Know more" buttons, so Nexa's answers don't re-render on every keystroke
+  const askRef = useRef(ask)
+  useEffect(() => { askRef.current = ask })
+  const askAbout = useCallback((question) => askRef.current(question), [])
+
+  // A picture Nexa made was saved: keep its stored URL
+  const imageSaved = useCallback((messageId, action) => {
+    setMessages((prev) => prev.map((m) => (m._id === messageId
+      ? { ...m, actions: m.actions.map((a) => (a.id === action.id ? action : a)) }
+      : m)))
+  }, [])
+
   // Examples go into the box (not sent), so people can adjust names and times first
   const fill = (example) => {
     setText(example)
@@ -323,7 +436,7 @@ const AiChat = () => {
           ) : (
             <div className="pb-2 pt-4">
               {messages.map((m) => (m.role === 'assistant'
-                ? <NexaBubble key={m._id} message={m} statuses={statuses} onCancel={cancelScheduled} onOpen={openChat} onPick={fill} />
+                ? <NexaBubble key={m._id} message={m} statuses={statuses} onCancel={cancelScheduled} onOpen={openChat} onPick={fill} onAsk={askAbout} onImageSaved={imageSaved} />
                 : <MyBubble key={m._id} message={m} />))}
               <AnimatePresence>{thinking && <Thinking />}</AnimatePresence>
             </div>

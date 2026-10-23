@@ -738,6 +738,15 @@ CLOUDINARY_FOLDER=nexchat          # all media goes under this folder
 # Nexa (free keys from https://console.groq.com/keys; several = more free quota)
 GROQ_API_KEYS=gsk_key1,gsk_key2
 GROQ_MODEL=openai/gpt-oss-120b
+
+# Nexa images. Best: Cloudflare Workers AI FLUX (free 10,000 neurons/day, about 95-170 images, no watermark)
+# dash.cloudflare.com > AI > Workers AI > "Use REST API": copy the Account ID and create a token
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+NEXA_IMAGES_PER_DAY=15             # per person
+# Fallbacks: Puter FLUX (npm run puter:login fills this in), then SubNP's free API (no key)
+PUTER_AUTH_TOKEN=
+# Nexa's web search uses Groq's built-in browser_search (gpt-oss models): no extra key
 ```
 
 ### 3. Run
@@ -778,7 +787,7 @@ It is safe to run again.
 
 ### Backend → Render
 1. Create a Web Service (or use `render.yaml`). Root directory `backend`, build `npm install`, start `node index.js`.
-2. Set environment variables: `MONGODB_URI`, `token`, `PORT`, `FRONTEND_URL` (your Vercel URL), `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`, `GROQ_API_KEYS`, `GROQ_MODEL`.
+2. Set environment variables: `MONGODB_URI`, `token`, `PORT`, `FRONTEND_URL` (your Vercel URL), `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`, `GROQ_API_KEYS`, `GROQ_MODEL`, `NEXA_IMAGES_PER_DAY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (optional: `PUTER_AUTH_TOKEN`).
 3. If the production database predates contacts, run `node scripts/migrate-contacts.js` once against it.
 
 ### Frontend → Vercel

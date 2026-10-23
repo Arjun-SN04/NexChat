@@ -56,7 +56,8 @@ const kindOf = (mimetype) =>
 
 // Upload a file buffer. Images arrive already compressed by the browser, so we
 // store them as-is: no transformations, which keeps Cloudinary credit use low.
-export const uploadToCloudinary = (file, { subfolder: forcedSubfolder } = {}) => {
+// `transformation` (optional) is applied once on upload, e.g. to crop an image
+export const uploadToCloudinary = (file, { subfolder: forcedSubfolder, transformation } = {}) => {
   ensureConfig()
   const kind = kindOf(file.mimetype)
   // Cloudinary stores audio under the "video" resource type
@@ -74,6 +75,7 @@ export const uploadToCloudinary = (file, { subfolder: forcedSubfolder } = {}) =>
         unique_filename: true,
         filename_override: kind === "file" ? file.originalname : undefined,
         overwrite: false,
+        ...(transformation ? { transformation } : {}),
       },
       (error, result) => {
         if (error) return reject(error)

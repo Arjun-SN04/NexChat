@@ -3,6 +3,8 @@ import { ScheduledMessage } from "../models/scheduledMessage.model.js"
 import { askGroq, groqChat } from "../utils/groq.js"
 import { NEXA_TOOLS, describeContext, formatWhen, loadNexaContext, runNexaTool } from "../utils/nexaTools.js"
 import { emitToUsers } from "../utils/notify.js"
+import { deleteFromCloudinary, uploadToCloudinary } from "../config/cloudinary.js"
+import { generateImage } from "../utils/imageGen.js"
 import { Message } from "../models/message.model.js"
 import User from "../models/user.model.js"
 import { Group } from "../models/group.model.js"
@@ -12,7 +14,7 @@ import { getNexaBot } from "../utils/nexaBot.js"
 import { notifyAudience } from "./message.controller.js"
 
 const MAX_INPUT = 4000        // characters per question
-const HISTORY = 20            // earlier messages sent as context
+const HISTORY = 6             // earlier messages sent as context (kept short: Groq free tier is ~8k tokens per request)
 const LIMIT_PER_MINUTE = 12   // per user, to protect the free API quota
 
 // What NexChat AI knows about the app, so it can help people use it
@@ -47,6 +49,9 @@ You can also DO things for the user with your tools:
 - schedule_message: send one later (also reminders: recipient "me" puts it in their Message yourself chat).
 - list_scheduled_messages / cancel_scheduled_message.
 - get_recent_messages: read a chat to summarize it or catch them up.
+- browser_search: search the web. Use it for anything current or that may have changed: news, prices, weather, sports, releases, people in the news, or facts you're unsure of. Never invent news or numbers; search instead. Don't mention the search itself or paste links (sources are shown under your answer).
+- generate_image: create a picture (art, photos, logos, wallpapers, illustrations). Use it whenever the user asks you to draw, create, generate or make an image or picture. Write a vivid, detailed English prompt. After calling it, reply in one short line (no bullets about the prompt).
+  You CAN create images. Never say you can't make images; if earlier replies in this chat said so, they were wrong, so just call generate_image.
 You can also rewrite text: shorten, make it more professional or friendlier, fix grammar, translate.
 
 Right now for the user: ${formatWhen(new Date(), ctx.timeZone)} (${ctx.timeZone}, ${offsetOf(ctx.timeZone)}). Interpret times like "tomorrow 9am" in this time zone and give send_at with this UTC offset.
@@ -60,13 +65,59 @@ Acting rules:
 
 Rules: only describe NexChat features listed above. If someone asks about something not listed, say NexChat doesn't have it (yet) rather than inventing steps or buttons.
 Style: write like a helpful friend in a chat app.
-- ALWAYS answer as short bullet points ("- " lines): usually 2 to 5 bullets, each one line (under about 15 words). A single fact can be one bullet.
+- By default, answer as short bullet points ("- " lines): usually 2 to 5 bullets, each one line (under about 15 words). A single fact can be one bullet.
 - When the user asks you to write something to send (a wish, a reply), give the text itself as a quote ("> ..."), then at most one bullet.
+- Visuals: when it genuinely helps the user understand, you may use one instead of (or before) the bullets:
+  - A Markdown table for comparisons, pros and cons, schedules, or several items with the same attributes. Keep it to about 2 to 5 columns and short cells.
+  - A Mermaid diagram for processes, steps, decisions, timelines or how things connect, in a fenced \`\`\`mermaid code block. Prefer "flowchart TD" (or "flowchart LR" for short chains). Use simple node ids (A, B, C) with labels in double quotes, e.g. A["Start"] --> B{"Paid?"} -->|"Yes"| C["Ship"]. Keep it under about 12 nodes. No styling, classDef or comments.
+  - Use a visual when the user asks for a chart, flowchart, diagram, table or comparison, or when the answer is clearly a process or comparison. For simple questions, stick to bullets.
+  - After a visual, add at most 2 short bullets.
+- Code: when the user asks for code, give complete, working code. Put each file in its own fenced block with the language and the file name after it, e.g. \`\`\`csharp FactionManager.cs (one block per file; never merge files). Skip the bullet limit for code, but keep the explanation around it to a few short bullets.
 - Never use em dashes or en dashes. Use commas, colons or full stops instead.
 - No headings, no "Quick tips" sections, no intro line, no sign-off like "Let me know if...".
 - Use **bold** only for button or tab names. At most one emoji, and only when it fits.`
 
 const recent = {} // userId -> timestamps of recent questions
+
+// Groq's free tier allows ~8,000 tokens per request (prompt + reply room), so earlier
+// messages are sent within a budget: newest first, long ones (code) shortened.
+const HISTORY_CHARS = 4000      // ~1,100 tokens of earlier chat
+const HISTORY_MSG_CHARS = 800   // per earlier message
+const shorten = (text) => (text.length > HISTORY_MSG_CHARS ? `${text.slice(0, HISTORY_MSG_CHARS)}\n…(shortened)` : text)
+const historyFor = (messages, budget = HISTORY_CHARS) => {
+  const out = []
+  let used = 0
+  for (const m of [...messages].reverse()) {
+    const content = shorten(m.content || "(done)")
+    if (used + content.length > budget) break
+    used += content.length
+    out.unshift({ role: m.role, content })
+  }
+  // Start on a user turn
+  while (out[0]?.role === "assistant") out.shift()
+  return out
+}
+
+// "draw a cat", "create an iamge of…", "make me a wallpaper": these must call generate_image
+const IMAGE_NOUN = "(?:image|imag|iamge|imgae|imge|img|picture|pic|photo|drawing|painting|illustration|wallpaper|logo|artwork|poster|sketch|portrait|icon|avatar)s?"
+const IMAGE_RE = new RegExp(`\\b(?:draw|paint|sketch|generate|create|make|design|render|produce|give me|show me)\\b.{0,40}\\b${IMAGE_NOUN}\\b|^\\s*(?:please\\s+|can you\\s+|could you\\s+)?(?:draw|paint|sketch)\\b|\\b${IMAGE_NOUN}\\s+of\\b`, "i")
+const NOT_IMAGE_RE = /\b(how (do|can|to)|where|profile (pic|picture|photo)|send (a |the )?(photo|pic|picture|image)|attach)/i
+const wantsImage = (text) => text.length < 600 && IMAGE_RE.test(text) && !NOT_IMAGE_RE.test(text)
+const FORCE_IMAGE = { type: "function", function: { name: "generate_image" } }
+
+// Nexa's tools plus Groq's built-in web search
+const TOOLS = [...NEXA_TOOLS, { type: "browser_search" }]
+
+// Links from Groq's web search, pages Nexa actually opened first
+const sourcesOf = (executed = []) => {
+  const searches = executed.filter((t) => t.type === "browser_search")
+  const opened = new Set(searches.filter((t) => !/"query"/.test(t.arguments || "")).flatMap((t) => (t.search_results?.results || []).map((r) => r.url)))
+  const found = searches.filter((t) => /"query"/.test(t.arguments || "")).flatMap((t) => t.search_results?.results || [])
+  return found
+    .filter((r) => /^https?:\/\//.test(r.url || "") && r.title)
+    .sort((a, b) => opened.has(b.url) - opened.has(a.url))
+    .map((r) => ({ title: String(r.title).slice(0, 120), url: r.url }))
+}
 
 const CAPABILITY_RE = /\b(what (can|could|do) you (do|help)|what are you (capable|able)|your (capabilities|features|skills)|how can you help|what do you offer|what can nexa)\b|^(help|capabilities|features)\??$/i
 const CAPABILITIES_TEXT = `Here's what I can do:
@@ -75,6 +126,8 @@ const CAPABILITIES_TEXT = `Here's what I can do:
 - **Scheduled messages**: list or cancel them
 - **Catch you up** on any chat or group
 - **Write and rewrite**: drafts, polish, translate
+- **Create images**, like "draw a cozy cabin in the snow"
+- **Search the web** for news, prices, scores and anything current
 - **NexChat help**: contacts, groups, calls, communities
 - In any chat: ✨ rewrite, smart replies, Catch me up, Translate, Transcribe, Remind me, and **@Nexa** in groups`
 
@@ -113,16 +166,31 @@ export const sendAiMessage = async (req, res) => {
     const question = await AiMessage.create({ user: me._id, role: "user", content: text })
 
     // Let the model call tools until it gives a final answer
+    const earlier = historyFor(history)
+    let trimmed = false
     const convo = [
       { role: "system", content: systemPrompt(me, ctx) },
-      ...history.map((m) => ({ role: m.role, content: m.content || "(done)" })),
+      ...earlier,
       { role: "user", content: text },
     ]
     const actions = []
+    const sources = []
     let reply = ""
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const msg = await groqChat(convo, { tools: NEXA_TOOLS })
+        // An image request: the first turn must call generate_image (the model sometimes refuses otherwise)
+        const forceImage = round === 0 && wantsImage(text)
+        const options = { tools: TOOLS, maxTokens: 1500, ...(forceImage ? { toolChoice: FORCE_IMAGE } : {}) }
+        let msg
+        try {
+          msg = await groqChat(convo, options)
+        } catch (err) {
+          if (err.code !== "too_large") throw err
+          // Still too big: drop the earlier chat and leave less room for the reply
+          if (!trimmed) { convo.splice(1, earlier.length); trimmed = true }
+          msg = await groqChat(convo, { ...options, maxTokens: 1000 })
+        }
+        sources.push(...sourcesOf(msg.executed_tools))
         if (!msg.tool_calls?.length) { reply = msg.content?.trim() || ""; break }
         convo.push({ role: "assistant", content: msg.content || "", tool_calls: msg.tool_calls })
         for (const callItem of msg.tool_calls) {
@@ -141,6 +209,8 @@ export const sendAiMessage = async (req, res) => {
       }
     }
     if (!reply) reply = actions.length ? "Done." : "Sorry, I couldn't finish that. Could you rephrase?"
+    const links = sources.filter((s, i) => sources.findIndex((o) => o.url === s.url) === i).slice(0, 4)
+    if (links.length) actions.push({ type: "sources", items: links })
 
     const answer = await AiMessage.create({ user: me._id, role: "assistant", content: reply, actions })
     res.status(201).json({ question, answer })
@@ -152,11 +222,63 @@ export const sendAiMessage = async (req, res) => {
 
 export const clearAiMessages = async (req, res) => {
   try {
+    const withImages = await AiMessage.find({ user: req.user._id, "actions.type": "image" }, { actions: 1 })
     await AiMessage.deleteMany({ user: req.user._id })
+    // Free the Cloudinary space of pictures Nexa made
+    deleteFromCloudinary(withImages.flatMap((m) => m.actions.filter((a) => a?.type === "image" && a.publicId)))
     res.status(200).json({ cleared: true })
   } catch (error) {
     console.log("clearAiMessages error:", error)
     res.status(500).json({ error: "Internal server error" })
+  }
+}
+
+// ── Create a picture Nexa was asked for ──────────────────────
+// Made on the server (utils/imageGen.js, no sign-in for anyone), then kept on Cloudinary
+const IMAGES_PER_DAY = Number(process.env.NEXA_IMAGES_PER_DAY) || 15
+const imageUse = new Map() // userId -> { day, count }  (resets on restart; the cap protects the shared allowance)
+const drawing = new Set()  // action ids being drawn right now
+
+export const createAiImage = async (req, res) => {
+  const actionId = String(req.body.actionId || "")
+  try {
+    const message = await AiMessage.findOne({ _id: req.params.id, user: req.user._id, role: "assistant" })
+    const index = message?.actions.findIndex((a) => a?.type === "image" && a.id === actionId) ?? -1
+    if (index < 0) return res.status(404).json({ error: "Image not found" })
+    if (message.actions[index].url) return res.status(200).json({ action: message.actions[index] })
+    if (drawing.has(actionId)) return res.status(409).json({ error: "Already creating this image" })
+
+    const today = new Date().toISOString().slice(0, 10)
+    const use = imageUse.get(String(req.user._id))
+    const count = use?.day === today ? use.count : 0
+    if (count >= IMAGES_PER_DAY) return res.status(429).json({ error: `You've reached today's limit of ${IMAGES_PER_DAY} images. Try again tomorrow.` })
+
+    drawing.add(actionId)
+    try {
+      const { prompt, shape } = message.actions[index]
+      const made = await generateImage(prompt, shape)
+      imageUse.set(String(req.user._id), { day: today, count: count + 1 })
+      const stored = await uploadToCloudinary({ buffer: made.buffer, mimetype: made.mimetype, originalname: "nexa-image" }, { subfolder: "ai-images", transformation: made.transformation })
+
+      // Re-read: the chat may have changed (or been cleared) while drawing
+      const fresh = await AiMessage.findOne({ _id: message._id, user: req.user._id })
+      const i = fresh?.actions.findIndex((a) => a?.type === "image" && a.id === actionId) ?? -1
+      if (i < 0) {
+        deleteFromCloudinary([stored])
+        return res.status(404).json({ error: "Image not found" })
+      }
+      const action = { ...fresh.actions[i], url: stored.url, publicId: stored.publicId, resourceType: "image", width: stored.width, height: stored.height }
+      fresh.actions[i] = action
+      fresh.markModified("actions")
+      await fresh.save()
+      res.status(200).json({ action })
+    } finally {
+      drawing.delete(actionId)
+    }
+  } catch (error) {
+    if (error.cause) console.log("createAiImage error:", error.cause)
+    else if (!error.status) console.log("createAiImage error:", error?.message || error)
+    res.status(error.status || 500).json({ error: error.status ? error.message : "Couldn't create the image" })
   }
 }
 
